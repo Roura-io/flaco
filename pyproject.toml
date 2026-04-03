@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flaco-ai"
+version = "0.12.0"
+description = "flacoAi — local AI coding agent powered by Ollama"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "elGordo", email = "cjroura@roura.io" }]
+
+dependencies = [
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+# Full install with rich CLI, Telegram, HTTP API
+full = [
+    "rich>=13.0",
+    "click>=8.1",
+    "prompt_toolkit>=3.0",
+    "python-telegram-bot>=21.0",
+    "starlette>=0.37",
+    "uvicorn>=0.29",
+]
+
+[project.scripts]
+# This is the key: `pip install -e .` puts `flaco` on your PATH
+flaco = "src.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

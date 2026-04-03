@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.venv/
+
+archive/
+.omx/
+.clawd-agents/
+
+# Rust build artifacts
+rust/target/
+
+# Claude Code local artifacts
+.claude/settings.local.json
+.claude/sessions/
+
+# Environment / secrets
+.env
+*.flaco_history
+.DS_Store
