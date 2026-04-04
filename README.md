@@ -24,20 +24,36 @@ flacoAi is a self-hosted alternative to cloud-based AI coding assistants. Everyt
 
 ## Install
 
+### Homebrew (recommended)
+
+```bash
+brew tap Roura-io/tap
+brew install flacoai
+```
+
+Then install [Ollama](https://ollama.com) and pull a model:
+
+```bash
+brew install --cask ollama
+ollama pull qwen3:30b-a3b
+```
+
+### Interactive installer
+
 Download the latest release from [Releases](https://github.com/Roura-io/flaco/releases), extract it, and:
 
 - **macOS:** Double-click `install.command`
 - **Terminal:** Run `./setup.sh`
 
-Or clone and build:
+The interactive installer handles Rust, Ollama, building the CLI, pulling a model, and configuring your shell.
+
+### From source
 
 ```bash
 git clone https://github.com/Roura-io/flaco.git
 cd flaco
 ./setup.sh
 ```
-
-The installer handles Rust, Ollama, building the CLI, pulling a model, and configuring your shell.
 
 ## Quick Start
 
