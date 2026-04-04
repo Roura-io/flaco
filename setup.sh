@@ -514,6 +514,30 @@ if $DO_SHELLCFG; then
             echo -e "  ${CYAN}export FLACO_MODEL=\"${CHOSEN_MODEL}\"${RESET}"
         fi
     fi
+
+    # OLLAMA_BASE_URL
+    echo ""
+    CURRENT_OLLAMA_URL=""
+    if grep -q 'OLLAMA_BASE_URL' "$SHELL_PROFILE" 2>/dev/null; then
+        CURRENT_OLLAMA_URL="$(grep 'OLLAMA_BASE_URL' "$SHELL_PROFILE" | sed 's/.*="\(.*\)"/\1/' | tail -1)"
+    fi
+    DEFAULT_OLLAMA_URL="${CURRENT_OLLAMA_URL:-http://localhost:11434/v1}"
+
+    if ask_yn "Configure Ollama server URL? (default: localhost)" "n"; then
+        OLLAMA_URL="$(ask_input "Ollama base URL" "$DEFAULT_OLLAMA_URL")"
+        if grep -q 'OLLAMA_BASE_URL' "$SHELL_PROFILE" 2>/dev/null; then
+            grep -v 'OLLAMA_BASE_URL' "$SHELL_PROFILE" > "${SHELL_PROFILE}.tmp" && mv "${SHELL_PROFILE}.tmp" "$SHELL_PROFILE"
+        fi
+        echo "export OLLAMA_BASE_URL=\"${OLLAMA_URL}\"" >> "$SHELL_PROFILE"
+        ok "Set OLLAMA_BASE_URL=${OLLAMA_URL} in ${SHELL_PROFILE}"
+        ENV_STATUS="configured"
+    else
+        if [[ -n "$CURRENT_OLLAMA_URL" ]]; then
+            ok "Ollama URL already configured: ${CURRENT_OLLAMA_URL}"
+        else
+            info "Using default: http://localhost:11434/v1"
+        fi
+    fi
 else
     ENV_STATUS="skipped"
 fi
