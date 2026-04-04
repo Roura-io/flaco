@@ -20,7 +20,13 @@ Author: Christopher J. Roura <cjroura@roura.io>
 - `src/` contains source files that should stay consistent with generated guidance and tests.
 - `tests/` contains validation surfaces that should be reviewed alongside code changes.
 
+## Binary names
+- `flacoai` — stable user build (release install)
+- `flacoai-dev` — developer build (`./setup.sh --dev`)
+- Both are defined in `rust/crates/flaco-cli/Cargo.toml` as `[[bin]]` entries pointing to the same `src/main.rs`
+
 ## Working agreement
 - Prefer small, reviewable changes and keep generated bootstrap files aligned with actual repo workflows.
 - All references should use flacoAi (project name) and Roura.io (company/brand).
+- Author: Christopher J. Roura <cjroura@roura.io>
 - Do not overwrite existing `CLAUDE.md` content automatically; update it intentionally when repo workflows change.

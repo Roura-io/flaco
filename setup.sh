@@ -11,6 +11,19 @@ VERSION="0.1.0"
 FLACO_STATE_DIR="$HOME/.flaco"
 FLACO_STATE_FILE="$FLACO_STATE_DIR/install.state"
 
+# ── Dev mode detection ─────────────────────────────────────
+# Run with --dev to install as flacoai-dev (for developers)
+# Otherwise installs as flacoai (stable user build)
+
+DEV_MODE=false
+BIN_NAME="flacoai"
+
+for arg in "$@"; do
+    case "$arg" in
+        --dev) DEV_MODE=true; BIN_NAME="flacoai-dev" ;;
+    esac
+done
+
 # ── Colors & formatting ────────────────────────────────────
 
 BOLD='\033[1m'
@@ -37,7 +50,11 @@ banner() {
     echo "██║     ███████╗██║  ██║╚██████╗╚██████╔╝    ██║  ██║██║"
     echo "╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝     ╚═╝  ╚═╝╚═╝"
     echo -e "${RESET}"
-    echo -e "${DIM}Local AI coding agent powered by Roura.io${RESET}  ${CYAN}v${VERSION}${RESET}"
+    if $DEV_MODE; then
+        echo -e "${DIM}Local AI coding agent powered by Roura.io${RESET}  ${CYAN}v${VERSION}${RESET}  ${YELLOW}${BOLD}[DEV]${RESET}"
+    else
+        echo -e "${DIM}Local AI coding agent powered by Roura.io${RESET}  ${CYAN}v${VERSION}${RESET}"
+    fi
     echo ""
 }
 
@@ -168,7 +185,7 @@ if [[ "$IS_EXISTING_INSTALL" == true ]]; then
     echo ""
 
     MODE_CHOICE=$(ask_choice "What would you like to do?" \
-        "🔄  Update — rebuild flaco & pull latest model (keeps config)" \
+        "🔄  Update — rebuild flacoAi & pull latest model (keeps config)" \
         "🧹  Fresh Install — full setup from scratch (like first time)" \
         "🛠️   Customize — pick which steps to run" \
         "❌  Cancel")
@@ -192,7 +209,7 @@ else
     echo ""
     echo -e "  ${CYAN}1.${RESET} 🦀 Install Rust (if needed)"
     echo -e "  ${CYAN}2.${RESET} 🦙 Install Ollama (if needed)"
-    echo -e "  ${CYAN}3.${RESET} 🔨 Build & install the ${BOLD}flaco${RESET} CLI"
+    echo -e "  ${CYAN}3.${RESET} 🔨 Build & install the ${BOLD}${BIN_NAME}${RESET} CLI"
     echo -e "  ${CYAN}4.${RESET} 🧠 Pull an AI model for local inference"
     echo -e "  ${CYAN}5.${RESET} ⚙️  Configure your shell environment"
     echo ""
@@ -230,7 +247,7 @@ elif [[ "$INSTALL_MODE" == "custom" ]]; then
     echo ""
     ask_yn "  🦀 Check / install Rust?" "n"   && DO_RUST=true   || DO_RUST=false
     ask_yn "  🦙 Check / install Ollama?" "n"  && DO_OLLAMA=true || DO_OLLAMA=false
-    ask_yn "  🔨 Rebuild & install flaco?" "y" && DO_BUILD=true  || DO_BUILD=false
+    ask_yn "  🔨 Rebuild & install ${BIN_NAME}?" "y" && DO_BUILD=true  || DO_BUILD=false
     ask_yn "  🧠 Pull / change AI model?" "n"  && DO_MODEL=true  || DO_MODEL=false
     ask_yn "  ⚙️  Configure shell profile?" "n" && DO_SHELLCFG=true || DO_SHELLCFG=false
 fi
@@ -259,7 +276,7 @@ if $DO_RUST; then
     else
         warn "Rust is not installed on this system."
         echo ""
-        if ask_yn "Install Rust via rustup? (required to build flaco)" "y"; then
+        if ask_yn "Install Rust via rustup? (required to build flacoAi)" "y"; then
             echo ""
             info "Downloading and running rustup installer..."
             echo ""
@@ -279,7 +296,7 @@ if $DO_RUST; then
                 exit 1
             fi
         else
-            fail "Rust is required to build flaco. Cannot continue without it."
+            fail "Rust is required to build flacoAi. Cannot continue without it."
             echo ""
             hint "Install Rust manually when you're ready:"
             echo -e "  ${CYAN}curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh${RESET}"
@@ -354,10 +371,10 @@ fi
 
 if $DO_BUILD; then
     next_step
-    step "Step ${CURRENT_STEP}/${TOTAL_STEPS} — 🔨 Build & Install flaco"
+    step "Step ${CURRENT_STEP}/${TOTAL_STEPS} — 🔨 Build & Install ${BIN_NAME}"
 
     if [[ "$INSTALL_MODE" == "update" ]]; then
-        info "Updating flaco to v${VERSION}..."
+        info "Updating ${BIN_NAME} to v${VERSION}..."
     else
         info "Building in release mode — this may take a few minutes on first build..."
     fi
@@ -369,15 +386,15 @@ if $DO_BUILD; then
         echo ""
         ok "Build succeeded"
 
-        info "Installing to ~/.cargo/bin..."
-        if cargo install --path crates/flaco-cli --force 2>&1; then
-            FLACO_BIN="${HOME}/.cargo/bin/flaco"
+        info "Installing ${BIN_NAME} to ~/.cargo/bin..."
+        if cargo install --path crates/flaco-cli --bin "$BIN_NAME" --force 2>&1; then
+            FLACO_BIN="${HOME}/.cargo/bin/${BIN_NAME}"
             ok "Installed to ${FLACO_BIN}"
             BUILD_STATUS="installed (v${VERSION})"
         else
             fail "cargo install failed."
             hint "The binary was built. You can copy it manually:"
-            echo -e "  ${CYAN}cp ${SCRIPT_DIR}/rust/target/release/flaco ~/.cargo/bin/${RESET}"
+            echo -e "  ${CYAN}cp ${SCRIPT_DIR}/rust/target/release/${BIN_NAME} ~/.cargo/bin/${RESET}"
             BUILD_STATUS="build ok, install failed"
         fi
     else
@@ -396,7 +413,7 @@ if $DO_BUILD; then
     cd "$SCRIPT_DIR"
 
     # Ensure ~/.cargo/bin is on PATH for remaining steps
-    if ! command -v flaco &>/dev/null; then
+    if ! command -v "$BIN_NAME" &>/dev/null; then
         export PATH="$HOME/.cargo/bin:$PATH"
     fi
 else
@@ -474,7 +491,7 @@ if $DO_SHELLCFG; then
             ENV_STATUS="configured"
         else
             warn "Skipped PATH configuration."
-            hint "Make sure ~/.cargo/bin is in your PATH to use flaco."
+            hint "Make sure ~/.cargo/bin is in your PATH to use ${BIN_NAME}."
             ENV_STATUS="skipped"
         fi
     else
@@ -509,17 +526,17 @@ echo ""
 echo -e "${BLUE}${BOLD}── Smoke test ──${RESET}"
 echo ""
 
-if command -v flaco &>/dev/null; then
-    FLACO_VER="$(flaco --version 2>&1 || echo 'unknown')"
-    ok "flaco --version → ${FLACO_VER}"
+if command -v "$BIN_NAME" &>/dev/null; then
+    FLACO_VER="$("$BIN_NAME" --version 2>&1 || echo 'unknown')"
+    ok "${BIN_NAME} --version → ${FLACO_VER}"
     SMOKE_STATUS="passed"
 else
-    if [[ -f "$HOME/.cargo/bin/flaco" ]]; then
-        FLACO_VER="$("$HOME/.cargo/bin/flaco" --version 2>&1 || echo 'unknown')"
-        ok "flaco --version → ${FLACO_VER}  ${DIM}(needs PATH reload)${RESET}"
+    if [[ -f "$HOME/.cargo/bin/${BIN_NAME}" ]]; then
+        FLACO_VER="$("$HOME/.cargo/bin/${BIN_NAME}" --version 2>&1 || echo 'unknown')"
+        ok "${BIN_NAME} --version → ${FLACO_VER}  ${DIM}(needs PATH reload)${RESET}"
         SMOKE_STATUS="passed (PATH reload needed)"
     else
-        fail "flaco not found"
+        fail "${BIN_NAME} not found"
         hint "Try: ${CYAN}source ${SHELL_PROFILE}${RESET} or restart your terminal"
         SMOKE_STATUS="not on PATH"
     fi
@@ -556,19 +573,19 @@ echo ""
 echo -e "${WHITE}${BOLD}Results:${RESET}"
 echo -e "  Rust ........... ${CYAN}${RUST_STATUS}${RESET}"
 echo -e "  Ollama ......... ${CYAN}${OLLAMA_STATUS}${RESET}"
-echo -e "  flaco .......... ${CYAN}${BUILD_STATUS}${RESET}"
+echo -e "  ${BIN_NAME} ...... ${CYAN}${BUILD_STATUS}${RESET}"
 echo -e "  Model .......... ${CYAN}${MODEL_STATUS}${RESET}${CHOSEN_MODEL:+ (${BOLD}${CHOSEN_MODEL}${RESET})}"
 echo -e "  Shell config ... ${CYAN}${ENV_STATUS}${RESET}"
 echo -e "  Smoke test ..... ${CYAN}${SMOKE_STATUS}${RESET}"
 echo ""
 echo -e "${WHITE}${BOLD}🚀 Quick start:${RESET}"
 echo ""
-echo -e "  ${CYAN}flaco${RESET}                              Start the interactive REPL"
-echo -e "  ${CYAN}flaco \"explain this function\"${RESET}       One-shot prompt"
+echo -e "  ${CYAN}${BIN_NAME}${RESET}                            Start the interactive REPL"
+echo -e "  ${CYAN}${BIN_NAME} \"explain this function\"${RESET}     One-shot prompt"
 if [[ -n "$CHOSEN_MODEL" ]]; then
-    echo -e "  ${CYAN}flaco --model ${CHOSEN_MODEL}${RESET}   Use your selected model"
+    echo -e "  ${CYAN}${BIN_NAME} --model ${CHOSEN_MODEL}${RESET}   Use your selected model"
 else
-    echo -e "  ${CYAN}flaco --model qwen3:30b-a3b${RESET}     Use a specific model"
+    echo -e "  ${CYAN}${BIN_NAME} --model qwen3:30b-a3b${RESET}   Use a specific model"
 fi
 echo ""
 

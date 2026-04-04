@@ -42,15 +42,30 @@ The installer handles Rust, Ollama, building the CLI, pulling a model, and confi
 ## Quick Start
 
 ```bash
-flaco                              # interactive REPL
-flaco "explain this function"      # one-shot prompt
-flaco --model qwen3:8b             # use a specific model
+flacoai                              # interactive REPL
+flacoai "explain this function"      # one-shot prompt
+flacoai --model qwen3:8b             # use a specific model
 ```
 
 Set a default model:
 
 ```bash
 export FLACO_MODEL="qwen3:30b-a3b"
+```
+
+## Developer Build
+
+If you're working on flacoAi itself, install the dev binary alongside the stable one:
+
+```bash
+./setup.sh --dev
+```
+
+This installs `flacoai-dev` to `~/.cargo/bin/` so both can coexist:
+
+```bash
+flacoai          # stable release
+flacoai-dev      # your local dev build
 ```
 
 ## Project Structure
