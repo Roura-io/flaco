@@ -6,6 +6,7 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+authors = ["Christopher J. Roura <cjroura@roura.io>"]
 publish = false
 
 [workspace.dependencies]

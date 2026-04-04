@@ -30,30 +30,30 @@ RESET='\033[0m'
 banner() {
     echo ""
     echo -e "${MAGENTA}${BOLD}"
-    echo "   ███████╗██╗      █████╗  ██████╗ ██████╗      █████╗ ██╗"
-    echo "   ██╔════╝██║     ██╔══██╗██╔════╝██╔═══██╗    ██╔══██╗██║"
-    echo "   █████╗  ██║     ███████║██║     ██║   ██║    ███████║██║"
-    echo "   ██╔══╝  ██║     ██╔══██║██║     ██║   ██║    ██╔══██║██║"
-    echo "   ██║     ███████╗██║  ██║╚██████╗╚██████╔╝    ██║  ██║██║"
-    echo "   ╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝     ╚═╝  ╚═╝╚═╝"
+    echo "███████╗██╗      █████╗  ██████╗ ██████╗      █████╗ ██╗"
+    echo "██╔════╝██║     ██╔══██╗██╔════╝██╔═══██╗    ██╔══██╗██║"
+    echo "█████╗  ██║     ███████║██║     ██║   ██║    ███████║██║"
+    echo "██╔══╝  ██║     ██╔══██║██║     ██║   ██║    ██╔══██║██║"
+    echo "██║     ███████╗██║  ██║╚██████╗╚██████╔╝    ██║  ██║██║"
+    echo "╚═╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝     ╚═╝  ╚═╝╚═╝"
     echo -e "${RESET}"
-    echo -e "   ${DIM}Local AI coding agent powered by Ollama${RESET}  ${CYAN}v${VERSION}${RESET}"
+    echo -e "${DIM}Local AI coding agent powered by Roura.io${RESET}  ${CYAN}v${VERSION}${RESET}"
     echo ""
 }
 
-step()  { echo -e "\n${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; echo -e "  ${CYAN}${BOLD}📦 $1${RESET}"; echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
-ok()    { echo -e "  ${GREEN}✅ $1${RESET}"; }
-warn()  { echo -e "  ${YELLOW}⚠️  $1${RESET}"; }
-fail()  { echo -e "  ${RED}❌ $1${RESET}"; }
-info()  { echo -e "  ${DIM}$1${RESET}"; }
-hint()  { echo -e "  ${MAGENTA}💡 $1${RESET}"; }
+step()  { echo -e "\n${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; echo -e "${CYAN}${BOLD}📦 $1${RESET}"; echo -e "${BLUE}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"; }
+ok()    { echo -e "${GREEN}✅ $1${RESET}"; }
+warn()  { echo -e "${YELLOW}⚠️  $1${RESET}"; }
+fail()  { echo -e "${RED}❌ $1${RESET}"; }
+info()  { echo -e "${DIM}$1${RESET}"; }
+hint()  { echo -e "${MAGENTA}💡 $1${RESET}"; }
 
 ask_yn() {
     local prompt="$1"
     local default="${2:-y}"
     local yn_hint
     if [[ "$default" == "y" ]]; then yn_hint="[Y/n]"; else yn_hint="[y/N]"; fi
-    echo -ne "  ${YELLOW}❓ ${prompt} ${DIM}${yn_hint}${RESET} "
+    echo -ne "${YELLOW}❓ ${prompt} ${DIM}${yn_hint}${RESET} "
     read -r answer
     answer="${answer:-$default}"
     case "$answer" in
@@ -65,7 +65,7 @@ ask_yn() {
 ask_input() {
     local prompt="$1"
     local default="$2"
-    echo -ne "  ${YELLOW}✏️  ${prompt} ${DIM}[${default}]${RESET} "
+    echo -ne "${YELLOW}✏️  ${prompt} ${DIM}[${default}]${RESET} "
     read -r answer
     echo "${answer:-$default}"
 }
@@ -75,13 +75,13 @@ ask_choice() {
     shift
     local options=("$@")
     echo ""
-    echo -e "  ${WHITE}${BOLD}${prompt}${RESET}"
+    echo -e "${WHITE}${BOLD}${prompt}${RESET}"
     echo ""
     for i in "${!options[@]}"; do
-        echo -e "    ${CYAN}$((i+1)).${RESET} ${options[$i]}"
+        echo -e "  ${CYAN}$((i+1)).${RESET} ${options[$i]}"
     done
     echo ""
-    echo -ne "  ${YELLOW}👉 Enter choice ${DIM}[1-${#options[@]}]${RESET} "
+    echo -ne "${YELLOW}👉 Enter choice ${DIM}[1-${#options[@]}]${RESET} "
     read -r choice
     echo "${choice:-1}"
 }
@@ -161,9 +161,9 @@ SHELL_PROFILE="$(detect_shell_profile)"
 
 if [[ "$IS_EXISTING_INSTALL" == true ]]; then
     # ── Returning user ──────────────────────────────────
-    echo -e "  ${GREEN}${BOLD}Welcome back!${RESET}  ${DIM}flacoAi ${PREV_VERSION} was previously installed.${RESET}"
+    echo -e "${GREEN}${BOLD}Welcome back!${RESET}  ${DIM}flacoAi ${PREV_VERSION} was previously installed.${RESET}"
     if [[ -n "$PREV_MODEL" ]]; then
-        echo -e "  ${DIM}Current model: ${PREV_MODEL}${RESET}"
+        echo -e "${DIM}Current model: ${PREV_MODEL}${RESET}"
     fi
     echo ""
 
@@ -179,30 +179,30 @@ if [[ "$IS_EXISTING_INSTALL" == true ]]; then
         3) INSTALL_MODE="custom" ;;
         *)
             echo ""
-            echo -e "  ${DIM}No changes made. See you next time! 👋${RESET}"
+            echo -e "${DIM}No changes made. See you next time! 👋${RESET}"
             echo ""
             exit 0
             ;;
     esac
 else
     # ── First time ──────────────────────────────────────
-    echo -e "  ${WHITE}${BOLD}Welcome to the flacoAi installer!${RESET}"
+    echo -e "${WHITE}${BOLD}Welcome to the flacoAi installer!${RESET}"
     echo ""
-    echo -e "  This script will set up everything you need:"
+    echo -e "This script will set up everything you need:"
     echo ""
-    echo -e "    ${CYAN}1.${RESET} 🦀 Install Rust (if needed)"
-    echo -e "    ${CYAN}2.${RESET} 🦙 Install Ollama (if needed)"
-    echo -e "    ${CYAN}3.${RESET} 🔨 Build & install the ${BOLD}flaco${RESET} CLI"
-    echo -e "    ${CYAN}4.${RESET} 🧠 Pull an AI model for local inference"
-    echo -e "    ${CYAN}5.${RESET} ⚙️  Configure your shell environment"
+    echo -e "  ${CYAN}1.${RESET} 🦀 Install Rust (if needed)"
+    echo -e "  ${CYAN}2.${RESET} 🦙 Install Ollama (if needed)"
+    echo -e "  ${CYAN}3.${RESET} 🔨 Build & install the ${BOLD}flaco${RESET} CLI"
+    echo -e "  ${CYAN}4.${RESET} 🧠 Pull an AI model for local inference"
+    echo -e "  ${CYAN}5.${RESET} ⚙️  Configure your shell environment"
     echo ""
-    echo -e "  ${DIM}Detected: ${OS} · shell: $(basename "${SHELL:-bash}") · profile: ${SHELL_PROFILE}${RESET}"
+    echo -e "${DIM}Detected: ${OS} · shell: $(basename "${SHELL:-bash}") · profile: ${SHELL_PROFILE}${RESET}"
     echo ""
 
     if ! ask_yn "Ready to proceed with installation?" "y"; then
         echo ""
-        echo -e "  ${DIM}No worries! Run this script again when you're ready.${RESET}"
-        echo -e "  ${DIM}  ./setup.sh${RESET}"
+        echo -e "${DIM}No worries! Run this script again when you're ready.${RESET}"
+        echo -e "${DIM}  ./setup.sh${RESET}"
         echo ""
         exit 0
     fi
@@ -226,7 +226,7 @@ if [[ "$INSTALL_MODE" == "update" ]]; then
     DO_SHELLCFG=false   # already configured
 elif [[ "$INSTALL_MODE" == "custom" ]]; then
     echo ""
-    echo -e "  ${WHITE}${BOLD}Select which steps to run:${RESET}"
+    echo -e "${WHITE}${BOLD}Select which steps to run:${RESET}"
     echo ""
     ask_yn "  🦀 Check / install Rust?" "n"   && DO_RUST=true   || DO_RUST=false
     ask_yn "  🦙 Check / install Ollama?" "n"  && DO_OLLAMA=true || DO_OLLAMA=false
@@ -274,15 +274,15 @@ if $DO_RUST; then
                 fail "Rust installation failed."
                 echo ""
                 hint "Try installing manually:"
-                echo -e "    ${CYAN}curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh${RESET}"
-                echo -e "  ${DIM}Then re-run this script.${RESET}"
+                echo -e "  ${CYAN}curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh${RESET}"
+                echo -e "${DIM}Then re-run this script.${RESET}"
                 exit 1
             fi
         else
             fail "Rust is required to build flaco. Cannot continue without it."
             echo ""
             hint "Install Rust manually when you're ready:"
-            echo -e "    ${CYAN}curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh${RESET}"
+            echo -e "  ${CYAN}curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh${RESET}"
             exit 1
         fi
     fi
@@ -340,7 +340,7 @@ if $DO_OLLAMA; then
             echo ""
             warn "Skipping Ollama installation."
             hint "You'll need Ollama to run models locally."
-            echo -e "    ${CYAN}${UNDERLINE}https://ollama.com${RESET}"
+            echo -e "  ${CYAN}${UNDERLINE}https://ollama.com${RESET}"
             OLLAMA_STATUS="skipped"
         fi
     fi
@@ -377,18 +377,18 @@ if $DO_BUILD; then
         else
             fail "cargo install failed."
             hint "The binary was built. You can copy it manually:"
-            echo -e "    ${CYAN}cp ${SCRIPT_DIR}/rust/target/release/flaco ~/.cargo/bin/${RESET}"
+            echo -e "  ${CYAN}cp ${SCRIPT_DIR}/rust/target/release/flaco ~/.cargo/bin/${RESET}"
             BUILD_STATUS="build ok, install failed"
         fi
     else
         fail "Build failed!"
         echo ""
         hint "Common fixes:"
-        echo -e "    ${DIM}• macOS: ${CYAN}xcode-select --install${RESET}"
-        echo -e "    ${DIM}• Linux: ${CYAN}sudo apt install build-essential${RESET}"
-        echo -e "    ${DIM}• Update Rust: ${CYAN}rustup update${RESET}"
+        echo -e "  ${DIM}• macOS: ${CYAN}xcode-select --install${RESET}"
+        echo -e "  ${DIM}• Linux: ${CYAN}sudo apt install build-essential${RESET}"
+        echo -e "  ${DIM}• Update Rust: ${CYAN}rustup update${RESET}"
         echo ""
-        echo -e "  ${DIM}Then re-run this script.${RESET}"
+        echo -e "${DIM}Then re-run this script.${RESET}"
         BUILD_STATUS="failed"
         exit 1
     fi
@@ -417,13 +417,13 @@ if $DO_MODEL; then
         MODEL_STATUS="skipped (no ollama)"
     else
         echo ""
-        echo -e "  ${WHITE}Popular models for flacoAi:${RESET}"
+        echo -e "${WHITE}Popular models for flacoAi:${RESET}"
         echo ""
-        echo -e "    ${BOLD}qwen3:30b-a3b${RESET}     ${DIM}— 30B MoE, fast & great for coding ${GREEN}(recommended)${RESET}"
-        echo -e "    ${BOLD}qwen3:8b${RESET}          ${DIM}— 8B params, lighter weight${RESET}"
-        echo -e "    ${BOLD}deepseek-coder-v2${RESET} ${DIM}— specialized for code${RESET}"
-        echo -e "    ${BOLD}llama3.1:8b${RESET}       ${DIM}— Meta's versatile model${RESET}"
-        echo -e "    ${BOLD}codellama:13b${RESET}     ${DIM}— Meta's code-focused model${RESET}"
+        echo -e "  ${BOLD}qwen3:30b-a3b${RESET}     ${DIM}— 30B MoE, fast & great for coding ${GREEN}(recommended)${RESET}"
+        echo -e "  ${BOLD}qwen3:8b${RESET}          ${DIM}— 8B params, lighter weight${RESET}"
+        echo -e "  ${BOLD}deepseek-coder-v2${RESET} ${DIM}— specialized for code${RESET}"
+        echo -e "  ${BOLD}llama3.1:8b${RESET}       ${DIM}— Meta's versatile model${RESET}"
+        echo -e "  ${BOLD}codellama:13b${RESET}     ${DIM}— Meta's code-focused model${RESET}"
         echo ""
 
         DEFAULT_MODEL="${PREV_MODEL:-qwen3:30b-a3b}"
@@ -448,7 +448,7 @@ if $DO_MODEL; then
             echo ""
             fail "Failed to pull ${CHOSEN_MODEL}."
             hint "You can pull it manually later:"
-            echo -e "    ${CYAN}ollama pull ${CHOSEN_MODEL}${RESET}"
+            echo -e "  ${CYAN}ollama pull ${CHOSEN_MODEL}${RESET}"
             MODEL_STATUS="failed"
         fi
     fi
@@ -494,7 +494,7 @@ if $DO_SHELLCFG; then
             ENV_STATUS="configured"
         else
             info "Skipped. You can set it later:"
-            echo -e "    ${CYAN}export FLACO_MODEL=\"${CHOSEN_MODEL}\"${RESET}"
+            echo -e "  ${CYAN}export FLACO_MODEL=\"${CHOSEN_MODEL}\"${RESET}"
         fi
     fi
 else
@@ -506,7 +506,7 @@ fi
 # ─────────────────────────────────────────────────────────────
 
 echo ""
-echo -e "  ${BLUE}${BOLD}── Smoke test ──${RESET}"
+echo -e "${BLUE}${BOLD}── Smoke test ──${RESET}"
 echo ""
 
 if command -v flaco &>/dev/null; then
@@ -544,40 +544,40 @@ save_state
 echo ""
 echo ""
 if [[ "$INSTALL_MODE" == "update" ]]; then
-    echo -e "${GREEN}${BOLD}  ╔═══════════════════════════════════════════════════╗${RESET}"
-    echo -e "${GREEN}${BOLD}  ║          🔄  Update complete!                    ║${RESET}"
-    echo -e "${GREEN}${BOLD}  ╚═══════════════════════════════════════════════════╝${RESET}"
+    echo -e "${GREEN}${BOLD}╔═══════════════════════════════════════════════════╗${RESET}"
+    echo -e "${GREEN}${BOLD}║          🔄  Update complete!                    ║${RESET}"
+    echo -e "${GREEN}${BOLD}╚═══════════════════════════════════════════════════╝${RESET}"
 else
-    echo -e "${GREEN}${BOLD}  ╔═══════════════════════════════════════════════════╗${RESET}"
-    echo -e "${GREEN}${BOLD}  ║          🎉  Setup complete!                     ║${RESET}"
-    echo -e "${GREEN}${BOLD}  ╚═══════════════════════════════════════════════════╝${RESET}"
+    echo -e "${GREEN}${BOLD}╔═══════════════════════════════════════════════════╗${RESET}"
+    echo -e "${GREEN}${BOLD}║          🎉  Setup complete!                     ║${RESET}"
+    echo -e "${GREEN}${BOLD}╚═══════════════════════════════════════════════════╝${RESET}"
 fi
 echo ""
-echo -e "  ${WHITE}${BOLD}Results:${RESET}"
-echo -e "    Rust ........... ${CYAN}${RUST_STATUS}${RESET}"
-echo -e "    Ollama ......... ${CYAN}${OLLAMA_STATUS}${RESET}"
-echo -e "    flaco .......... ${CYAN}${BUILD_STATUS}${RESET}"
-echo -e "    Model .......... ${CYAN}${MODEL_STATUS}${RESET}${CHOSEN_MODEL:+ (${BOLD}${CHOSEN_MODEL}${RESET})}"
-echo -e "    Shell config ... ${CYAN}${ENV_STATUS}${RESET}"
-echo -e "    Smoke test ..... ${CYAN}${SMOKE_STATUS}${RESET}"
+echo -e "${WHITE}${BOLD}Results:${RESET}"
+echo -e "  Rust ........... ${CYAN}${RUST_STATUS}${RESET}"
+echo -e "  Ollama ......... ${CYAN}${OLLAMA_STATUS}${RESET}"
+echo -e "  flaco .......... ${CYAN}${BUILD_STATUS}${RESET}"
+echo -e "  Model .......... ${CYAN}${MODEL_STATUS}${RESET}${CHOSEN_MODEL:+ (${BOLD}${CHOSEN_MODEL}${RESET})}"
+echo -e "  Shell config ... ${CYAN}${ENV_STATUS}${RESET}"
+echo -e "  Smoke test ..... ${CYAN}${SMOKE_STATUS}${RESET}"
 echo ""
-echo -e "  ${WHITE}${BOLD}🚀 Quick start:${RESET}"
+echo -e "${WHITE}${BOLD}🚀 Quick start:${RESET}"
 echo ""
-echo -e "    ${CYAN}flaco${RESET}                              Start the interactive REPL"
-echo -e "    ${CYAN}flaco \"explain this function\"${RESET}       One-shot prompt"
+echo -e "  ${CYAN}flaco${RESET}                              Start the interactive REPL"
+echo -e "  ${CYAN}flaco \"explain this function\"${RESET}       One-shot prompt"
 if [[ -n "$CHOSEN_MODEL" ]]; then
-    echo -e "    ${CYAN}flaco --model ${CHOSEN_MODEL}${RESET}   Use your selected model"
+    echo -e "  ${CYAN}flaco --model ${CHOSEN_MODEL}${RESET}   Use your selected model"
 else
-    echo -e "    ${CYAN}flaco --model qwen3:30b-a3b${RESET}     Use a specific model"
+    echo -e "  ${CYAN}flaco --model qwen3:30b-a3b${RESET}     Use a specific model"
 fi
 echo ""
 
 if [[ "$ENV_STATUS" == "configured" ]]; then
-    echo -e "  ${YELLOW}${BOLD}⚡ Important:${RESET} Apply your new shell config:"
-    echo -e "    ${CYAN}source ${SHELL_PROFILE}${RESET}"
+    echo -e "${YELLOW}${BOLD}⚡ Important:${RESET} Apply your new shell config:"
+    echo -e "  ${CYAN}source ${SHELL_PROFILE}${RESET}"
     echo ""
 fi
 
-echo -e "  ${DIM}Run ${CYAN}./setup.sh${DIM} again anytime to update or reconfigure.${RESET}"
-echo -e "  ${DIM}Happy hacking! 🤙${RESET}"
+echo -e "${DIM}Run ${CYAN}./setup.sh${DIM} again anytime to update or reconfigure.${RESET}"
+echo -e "${DIM}Happy hacking! 🤙${RESET}"
 echo ""

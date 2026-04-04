@@ -1,9 +1,14 @@
-# CLAW.md
+# CLAUDE.md
 
-This file provides guidance to Claw Code when working with code in this repository.
+This file provides guidance to Claude when working with code in this repository.
+
+## Project
+
+flacoAi — a local AI coding agent powered by Ollama, built by Roura.io.
+Author: Christopher J. Roura <cjroura@roura.io>
 
 ## Detected stack
-- Languages: Rust.
+- Languages: Rust, Python.
 - Frameworks: none detected from the supported starter markers.
 
 ## Verification
@@ -17,5 +22,5 @@ This file provides guidance to Claw Code when working with code in this reposito
 
 ## Working agreement
 - Prefer small, reviewable changes and keep generated bootstrap files aligned with actual repo workflows.
-- Keep shared defaults in `.claw.json`; reserve `.claw/settings.local.json` for machine-local overrides.
-- Do not overwrite existing `CLAW.md` content automatically; update it intentionally when repo workflows change.
+- All references should use flacoAi (project name) and Roura.io (company/brand).
+- Do not overwrite existing `CLAUDE.md` content automatically; update it intentionally when repo workflows change.

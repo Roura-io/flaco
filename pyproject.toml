@@ -8,7 +8,7 @@ version = "0.12.0"
 description = "flacoAi — local AI coding agent powered by Ollama"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "elGordo", email = "cjroura@roura.io" }]
+authors = [{ name = "Christopher J. Roura", email = "cjroura@roura.io" }]
 
 dependencies = [
     "httpx>=0.27",

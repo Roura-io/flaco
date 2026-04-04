@@ -6,11 +6,17 @@
 # cd to the directory this file lives in (handles double-click from Finder)
 cd "$(dirname "$0")" || exit 1
 
-# Make sure setup.sh is executable
-chmod +x ./setup.sh
+# Find the setup script (hidden in release builds, visible in dev)
+if [[ -f ./.setup.sh ]]; then
+    SETUP="./.setup.sh"
+else
+    SETUP="./setup.sh"
+fi
+
+chmod +x "$SETUP"
 
 # Run the interactive installer
-./setup.sh
+"$SETUP"
 
 # Keep Terminal open so the user can read the results
 echo ""
