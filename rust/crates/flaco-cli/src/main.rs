@@ -41,10 +41,10 @@ use runtime::{
 use serde_json::json;
 use tools::GlobalToolRegistry;
 
-const DEFAULT_MODEL: &str = "claude-opus-4-6";
+const DEFAULT_MODEL: &str = "qwen3:30b-a3b";
 fn default_model() -> String {
-    // Allow overriding the default model via FLACO_MODEL or CLAW_MODEL env var
-    if let Ok(model) = std::env::var("FLACO_MODEL").or_else(|_| std::env::var("CLAW_MODEL")) {
+    // Allow overriding the default model via FLACO_MODEL env var
+    if let Ok(model) = std::env::var("FLACO_MODEL") {
         if !model.is_empty() {
             return model;
         }
@@ -80,7 +80,7 @@ fn render_cli_error(problem: &str) -> String {
         };
         lines.push(format!("{label}{line}"));
     }
-    lines.push("  Help             flaco --help".to_string());
+    lines.push("  Help             flacoai --help".to_string());
     lines.join("\n")
 }
 
@@ -2487,7 +2487,7 @@ fn render_version_report() -> String {
     let git_sha = GIT_SHA.unwrap_or("unknown");
     let target = BUILD_TARGET.unwrap_or("unknown");
     format!(
-        "flacoAi\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}\n\nSupport\n  Help             flaco --help\n  REPL             /help"
+        "flacoAi\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}\n\nSupport\n  Help             flacoai --help\n  REPL             /help"
     )
 }
 

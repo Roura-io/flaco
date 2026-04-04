@@ -278,7 +278,8 @@ pub fn detect_provider_kind(model: &str) -> ProviderKind {
     if openai_compat::has_api_key("XAI_API_KEY") {
         return ProviderKind::Xai;
     }
-    ProviderKind::ClawApi
+    // flacoAi defaults to Ollama — local-first
+    ProviderKind::Ollama
 }
 
 #[must_use]
