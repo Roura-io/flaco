@@ -18,6 +18,8 @@ api = { path = "../api" }
 commands = { path = "../commands" }
 compat-harness = { path = "../compat-harness" }
 crossterm = "0.28"
+integrations = { path = "../integrations" }
+model-intel = { path = "../model-intel" }
 pulldown-cmark = "0.13"
 rustyline = "15"
 runtime = { path = "../runtime" }

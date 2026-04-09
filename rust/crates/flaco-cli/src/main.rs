@@ -228,7 +228,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 index += 1;
             }
             "-p" => {
-                // Claw Code compat: -p "prompt" = one-shot prompt
+                // Claude Code compat: -p "prompt" = one-shot prompt
                 let prompt = args[index + 1..].join(" ");
                 if prompt.trim().is_empty() {
                     return Err("-p requires a prompt string".to_string());
@@ -242,7 +242,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 });
             }
             "--print" => {
-                // Claw Code compat: --print makes output non-interactive
+                // Claude Code compat: --print makes output non-interactive
                 output_format = CliOutputFormat::Text;
                 index += 1;
             }
@@ -358,7 +358,9 @@ fn format_direct_slash_command_error(command: &str, is_unknown: bool) -> String 
     if is_unknown {
         append_slash_command_suggestions(&mut lines, trimmed);
     } else {
-        lines.push("  Try              Start `claw` to use interactive slash commands".to_string());
+        lines.push(
+            "  Try              Start `flacoai` to use interactive slash commands".to_string(),
+        );
         lines.push(
             "  Tip              Resume-safe commands also work with `flaco --resume SESSION.json ...`"
                 .to_string(),
@@ -489,6 +491,8 @@ fn print_bootstrap_plan() {
 }
 
 fn default_oauth_config() -> OAuthConfig {
+    // NOTE: These are Anthropic's OAuth endpoints, retained for Claude Code compat.
+    // flacoAi primarily uses Ollama for local inference.
     OAuthConfig {
         client_id: String::from("9d1c250a-e61b-44d9-88ed-5944d1962f5e"),
         authorize_url: String::from("https://platform.claw.dev/oauth/authorize"),
@@ -1064,6 +1068,7 @@ struct LiveCli {
     system_prompt: Vec<String>,
     runtime: ConversationRuntime<DefaultRuntimeClient, CliToolExecutor>,
     session: SessionHandle,
+    integration_banner: String,
 }
 
 impl LiveCli {
@@ -1085,6 +1090,11 @@ impl LiveCli {
             permission_mode,
             None,
         )?;
+
+        // Discover available integrations for the startup banner.
+        let registry = integrations::ConnectorRegistry::discover();
+        let integration_banner = integrations::render_integration_banner(&registry);
+
         let cli = Self {
             model,
             allowed_tools,
@@ -1092,6 +1102,7 @@ impl LiveCli {
             system_prompt,
             runtime,
             session,
+            integration_banner,
         };
         cli.persist_session()?;
         Ok(cli)
@@ -1118,12 +1129,12 @@ impl LiveCli {
         );
         let has_claw_md = cwd
             .as_ref()
-            .is_some_and(|path| path.join("CLAW.md").is_file());
+            .is_some_and(|path| path.join("FLACOAI.md").is_file());
         let mut lines = vec![
             format!(
                 "{} {}",
                 if color {
-                    "\x1b[1;38;5;45m🦞 Claw Code\x1b[0m"
+                    "\x1b[1;38;5;45m🤖 flacoAi\x1b[0m"
                 } else {
                     "flacoAi"
                 },
@@ -1138,6 +1149,7 @@ impl LiveCli {
             format!("  Model            {}", self.model),
             format!("  Permissions      {}", self.permission_mode.as_str()),
             format!("  Session          {}", self.session.id),
+            format!("  {}", self.integration_banner),
             format!(
                 "  Quick start      {}",
                 if has_claw_md {
@@ -1152,7 +1164,7 @@ impl LiveCli {
         ];
         if !has_claw_md {
             lines.push(
-                "  First run        /init scaffolds CLAW.md, .claw.json, and local session files"
+                "  First run        /init scaffolds FLACOAI.md, .flacoai.json, and local session files"
                     .to_string(),
             );
         }
@@ -1858,7 +1870,7 @@ impl LiveCli {
 
 fn sessions_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let cwd = env::current_dir()?;
-    let path = cwd.join(".claw").join("sessions");
+    let path = cwd.join(".flacoai").join("sessions");
     fs::create_dir_all(&path)?;
     Ok(path)
 }
@@ -2220,7 +2232,8 @@ fn render_memory_report() -> Result<String, Box<dyn std::error::Error>> {
     if project_context.instruction_files.is_empty() {
         lines.push("Discovered files".to_string());
         lines.push(
-            "  No CLAW instruction files discovered in the current directory ancestry.".to_string(),
+            "  No flacoAi instruction files discovered in the current directory ancestry."
+                .to_string(),
         );
     } else {
         lines.push("Discovered files".to_string());
@@ -3072,9 +3085,7 @@ impl DefaultRuntimeClient {
     }
 }
 
-fn resolve_provider_client(
-    model: &str,
-) -> Result<api::ProviderClient, Box<dyn std::error::Error>> {
+fn resolve_provider_client(model: &str) -> Result<api::ProviderClient, Box<dyn std::error::Error>> {
     let provider_kind = api::detect_provider_kind(model);
     match provider_kind {
         api::ProviderKind::Ollama => {
@@ -4051,7 +4062,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         out,
         "  flaco skills                           List installed skills"
     )?;
-    writeln!(out, "  flaco system-prompt [--cwd PATH] [--date YYYY-MM-DD]")?;
+    writeln!(
+        out,
+        "  flaco system-prompt [--cwd PATH] [--date YYYY-MM-DD]"
+    )?;
     writeln!(
         out,
         "  flaco login                            Start the OAuth login flow"
@@ -4062,7 +4076,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         out,
-        "  flaco init                             Scaffold CLAW.md + local files"
+        "  flacoai init                           Scaffold FLACOAI.md + local files"
     )?;
     writeln!(out)?;
     writeln!(out, "Flags")?;
@@ -4751,7 +4765,7 @@ mod tests {
     #[test]
     fn init_template_mentions_detected_rust_workspace() {
         let rendered = crate::init::render_init_claw_md(std::path::Path::new("."));
-        assert!(rendered.contains("# CLAW.md"));
+        assert!(rendered.contains("# FLACOAI.md"));
         assert!(rendered.contains("cargo clippy --workspace --all-targets -- -D warnings"));
     }
 
@@ -4898,7 +4912,7 @@ mod tests {
             task_label: "ship plugin progress".to_string(),
             step: 3,
             phase: "running read_file".to_string(),
-            detail: Some("reading rust/crates/claw-cli/src/main.rs".to_string()),
+            detail: Some("reading rust/crates/flaco-cli/src/main.rs".to_string()),
             saw_final_text: false,
         };
 
@@ -4945,8 +4959,8 @@ mod tests {
             "reading src/main.rs"
         );
         assert!(
-            describe_tool_progress("bash", r#"{"command":"cargo test -p claw-cli"}"#)
-                .contains("cargo test -p claw-cli")
+            describe_tool_progress("bash", r#"{"command":"cargo test -p flaco-cli"}"#)
+                .contains("cargo test -p flaco-cli")
         );
         assert_eq!(
             describe_tool_progress("grep_search", r#"{"pattern":"ultraplan","path":"rust"}"#),

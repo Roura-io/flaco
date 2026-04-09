@@ -91,7 +91,10 @@ impl GlobalToolRegistry {
         Ok(Self { plugin_tools })
     }
 
-    pub fn normalize_allowed_tools(&self, values: &[String]) -> Result<Option<BTreeSet<String>>, String> {
+    pub fn normalize_allowed_tools(
+        &self,
+        values: &[String],
+    ) -> Result<Option<BTreeSet<String>>, String> {
         if values.is_empty() {
             return Ok(None);
         }
@@ -100,7 +103,11 @@ impl GlobalToolRegistry {
         let canonical_names = builtin_specs
             .iter()
             .map(|spec| spec.name.to_string())
-            .chain(self.plugin_tools.iter().map(|tool| tool.definition().name.clone()))
+            .chain(
+                self.plugin_tools
+                    .iter()
+                    .map(|tool| tool.definition().name.clone()),
+            )
             .collect::<Vec<_>>();
         let mut name_map = canonical_names
             .iter()
@@ -151,7 +158,8 @@ impl GlobalToolRegistry {
             .plugin_tools
             .iter()
             .filter(|tool| {
-                allowed_tools.is_none_or(|allowed| allowed.contains(tool.definition().name.as_str()))
+                allowed_tools
+                    .is_none_or(|allowed| allowed.contains(tool.definition().name.as_str()))
             })
             .map(|tool| ToolDefinition {
                 name: tool.definition().name.clone(),
@@ -174,7 +182,8 @@ impl GlobalToolRegistry {
             .plugin_tools
             .iter()
             .filter(|tool| {
-                allowed_tools.is_none_or(|allowed| allowed.contains(tool.definition().name.as_str()))
+                allowed_tools
+                    .is_none_or(|allowed| allowed.contains(tool.definition().name.as_str()))
             })
             .map(|tool| {
                 (
@@ -479,7 +488,7 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "Config",
-            description: "Get or set Claw Code settings.",
+            description: "Get or set flacoAi settings.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -1081,7 +1090,7 @@ fn build_http_client() -> Result<Client, String> {
     Client::builder()
         .timeout(Duration::from_secs(20))
         .redirect(reqwest::redirect::Policy::limited(10))
-        .user_agent("claw-rust-tools/0.1")
+        .user_agent("flacoai-rust-tools/0.1")
         .build()
         .map_err(|error| error.to_string())
 }
@@ -1451,7 +1460,27 @@ fn todo_store_path() -> Result<std::path::PathBuf, String> {
         return Ok(std::path::PathBuf::from(path));
     }
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
-    Ok(cwd.join(".claw-todos.json"))
+    Ok(cwd.join(".flacoai-todos.json"))
+}
+
+fn bundled_skills_dir() -> Option<std::path::PathBuf> {
+    // In development, resolve from the tools crate source directory.
+    let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("skills");
+    if dev_path.is_dir() {
+        return Some(dev_path.canonicalize().unwrap_or(dev_path));
+    }
+
+    // In release, look next to the running binary.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let release_path = parent.join("skills");
+            if release_path.is_dir() {
+                return Some(release_path);
+            }
+        }
+    }
+
+    None
 }
 
 fn resolve_skill_path(skill: &str) -> Result<std::path::PathBuf, String> {
@@ -1461,6 +1490,12 @@ fn resolve_skill_path(skill: &str) -> Result<std::path::PathBuf, String> {
     }
 
     let mut candidates = Vec::new();
+
+    // Bundled skills ship with the binary and are checked first.
+    if let Some(bundled) = bundled_skills_dir() {
+        candidates.push(bundled);
+    }
+
     if let Ok(codex_home) = std::env::var("CODEX_HOME") {
         candidates.push(std::path::PathBuf::from(codex_home).join("skills"));
     }
@@ -1584,7 +1619,7 @@ where
 }
 
 fn spawn_agent_job(job: AgentJob) -> Result<(), String> {
-    let thread_name = format!("claw-agent-{}", job.manifest.agent_id);
+    let thread_name = format!("flacoai-agent-{}", job.manifest.agent_id);
     std::thread::Builder::new()
         .name(thread_name)
         .spawn(move || {
@@ -1628,7 +1663,7 @@ fn build_agent_runtime(
         .clone()
         .unwrap_or_else(|| DEFAULT_AGENT_MODEL.to_string());
     let allowed_tools = job.allowed_tools.clone();
-    let api_client = ProviderRuntimeClient::new(model, allowed_tools.clone())?;
+    let api_client = ProviderRuntimeClient::new(&model, allowed_tools.clone())?;
     let tool_executor = SubagentToolExecutor::new(allowed_tools);
     Ok(ConversationRuntime::new(
         Session::new(),
@@ -1699,7 +1734,7 @@ fn allowed_tools_for_subagent(subagent_type: &str) -> BTreeSet<String> {
             "SendUserMessage",
             "PowerShell",
         ],
-        "claw-guide" => vec![
+        "flacoai-guide" => vec![
             "read_file",
             "glob_search",
             "grep_search",
@@ -1805,8 +1840,8 @@ struct ProviderRuntimeClient {
 }
 
 impl ProviderRuntimeClient {
-    fn new(model: String, allowed_tools: BTreeSet<String>) -> Result<Self, String> {
-        let model = resolve_model_alias(&model).to_string();
+    fn new(model: &str, allowed_tools: BTreeSet<String>) -> Result<Self, String> {
+        let model = resolve_model_alias(model);
         let client = ProviderClient::from_model(&model).map_err(|error| error.to_string())?;
         Ok(Self {
             runtime: tokio::runtime::Runtime::new().map_err(|error| error.to_string())?,
@@ -1818,6 +1853,7 @@ impl ProviderRuntimeClient {
 }
 
 impl ApiClient for ProviderRuntimeClient {
+    #[allow(clippy::too_many_lines)]
     fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
         let tools = tool_specs_for_allowed_tools(Some(&self.allowed_tools))
             .into_iter()
@@ -2211,9 +2247,9 @@ fn agent_store_dir() -> Result<std::path::PathBuf, String> {
     }
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
     if let Some(workspace_root) = cwd.ancestors().nth(2) {
-        return Ok(workspace_root.join(".claw-agents"));
+        return Ok(workspace_root.join(".flacoai-agents"));
     }
-    Ok(cwd.join(".claw-agents"))
+    Ok(cwd.join(".flacoai-agents"))
 }
 
 fn make_agent_id() -> String {
@@ -2254,7 +2290,9 @@ fn normalize_subagent_type(subagent_type: Option<&str>) -> String {
         "verification" | "verificationagent" | "verify" | "verifier" => {
             String::from("Verification")
         }
-        "clawguide" | "clawguideagent" | "guide" => String::from("claw-guide"),
+        "clawguide" | "clawguideagent" | "flacoaiguide" | "flacoaiguideagent" | "guide" => {
+            String::from("flacoai-guide")
+        }
         "statusline" | "statuslinesetup" => String::from("statusline-setup"),
         _ => trimmed.to_string(),
     }
@@ -2754,7 +2792,7 @@ fn config_file_for_scope(scope: ConfigScope) -> Result<PathBuf, String> {
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
     Ok(match scope {
         ConfigScope::Global => config_home_dir()?.join("settings.json"),
-        ConfigScope::Settings => cwd.join(".claw").join("settings.local.json"),
+        ConfigScope::Settings => cwd.join(".flacoai").join("settings.local.json"),
     })
 }
 
@@ -2763,7 +2801,7 @@ fn config_home_dir() -> Result<PathBuf, String> {
         return Ok(PathBuf::from(path));
     }
     let home = std::env::var("HOME").map_err(|_| String::from("HOME is not set"))?;
-    Ok(PathBuf::from(home).join(".claw"))
+    Ok(PathBuf::from(home).join(".flacoai"))
 }
 
 fn read_json_object(path: &Path) -> Result<serde_json::Map<String, Value>, String> {
@@ -4211,10 +4249,10 @@ mod tests {
         ));
         let home = root.join("home");
         let cwd = root.join("cwd");
-        std::fs::create_dir_all(home.join(".claw")).expect("home dir");
-        std::fs::create_dir_all(cwd.join(".claw")).expect("cwd dir");
+        std::fs::create_dir_all(home.join(".flacoai")).expect("home dir");
+        std::fs::create_dir_all(cwd.join(".flacoai")).expect("cwd dir");
         std::fs::write(
-            home.join(".claw").join("settings.json"),
+            home.join(".flacoai").join("settings.json"),
             r#"{"verbose":false}"#,
         )
         .expect("write global settings");
@@ -4464,6 +4502,56 @@ printf 'pwsh:%s' "$1"
                 self.body
             )
             .into_bytes()
+        }
+    }
+
+    #[test]
+    fn bundled_skills_dir_exists() {
+        let dir = super::bundled_skills_dir();
+        assert!(dir.is_some(), "bundled_skills_dir should resolve");
+        assert!(
+            dir.unwrap().is_dir(),
+            "bundled skills dir should exist on disk"
+        );
+    }
+
+    #[test]
+    fn resolves_bundled_skill_by_name() {
+        let _guard = env_lock().lock().expect("lock");
+        let result = super::resolve_skill_path("code-review");
+        assert!(
+            result.is_ok(),
+            "code-review skill should resolve: {result:?}"
+        );
+        let path = result.unwrap();
+        assert!(path.exists(), "resolved skill path should exist on disk");
+        assert!(
+            path.to_string_lossy().contains("code-review"),
+            "path should contain skill name"
+        );
+    }
+
+    #[test]
+    fn resolves_all_bundled_skills() {
+        let _guard = env_lock().lock().expect("lock");
+        let skills = [
+            "architecture",
+            "code-review",
+            "debug",
+            "deploy-checklist",
+            "documentation",
+            "incident-response",
+            "onboarding",
+            "retro",
+            "standup",
+            "tech-debt",
+        ];
+        for name in skills {
+            let result = super::resolve_skill_path(name);
+            assert!(
+                result.is_ok(),
+                "bundled skill '{name}' should resolve: {result:?}"
+            );
         }
     }
 }
