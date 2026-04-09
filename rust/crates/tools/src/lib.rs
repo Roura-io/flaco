@@ -1683,9 +1683,83 @@ fn build_agent_system_prompt(subagent_type: &str) -> Result<Vec<String>, String>
         "unknown",
     )
     .map_err(|error| error.to_string())?;
-    prompt.push(format!(
-        "You are a background sub-agent of type `{subagent_type}`. Work only on the delegated task, use only the tools available to you, do not ask the user questions, and finish with a concise result."
-    ));
+
+    let persona_prompt = match subagent_type {
+        "ios_reviewer" => {
+            "\
+You are a staff-level iOS code reviewer. Review code with focus on:
+- Swift 6 strict concurrency correctness (Sendable, actor isolation, data races)
+- Access control (prefer internal/private, justify public)
+- SwiftUI best practices (proper use of @State, @Binding, @Observable)
+- Memory management (retain cycles, weak/unowned references)
+- Error handling completeness (no force unwraps in production paths)
+- API naming conventions per Swift API Design Guidelines
+- Missing or misleading documentation
+Give specific, line-level feedback. Be direct and constructive."
+        }
+
+        "docc_writer" => {
+            "\
+You are an Apple DocC documentation specialist. Write comprehensive documentation that:
+- Uses /// for all public symbols with Summary, Discussion, and Parameters sections
+- Links related symbols with ``SymbolName`` syntax
+- Includes @Parameter, @Returns, and @Throws annotations
+- Adds code examples in ```swift fenced blocks
+- Groups related APIs with // MARK: - sections
+- Follows Apple's documentation voice: clear, concise, imperative mood
+- Documents threading/concurrency requirements explicitly"
+        }
+
+        "planner" => {
+            "\
+You are a technical planning specialist. Break work into small, independently shippable tickets:
+- Each ticket should be completable in 1-2 hours
+- Include clear acceptance criteria
+- Suggest branch names (feature/ticket-name)
+- Identify dependencies between tickets and order accordingly
+- Flag risks or unknowns that need spikes
+- No inter-ticket dependencies that would block parallel work
+Output as a numbered list with title, description, acceptance criteria, and branch name."
+        }
+
+        "network_admin" => {
+            "\
+You are a network administration expert specializing in UniFi ecosystems:
+- UniFi Network Application (controllers, APs, switches, gateways)
+- VLAN design and inter-VLAN routing
+- WiFi optimization (channel planning, band steering, roaming)
+- Firewall rules and port forwarding
+- VPN configuration (WireGuard, L2TP, site-to-site)
+- DPI and traffic management
+- DNS and DHCP configuration
+- Network monitoring and troubleshooting
+Use the service_query tool to interact with UniFi and other network services.
+Explain technical concepts in clear terms when asked."
+        }
+
+        "orchestrator" => {
+            "\
+You are a task orchestration agent. Break complex work into a visible task plan:
+- Create a structured task plan with create_task_plan tool
+- Work through tasks sequentially, updating status with update_task
+- If a task has subtasks, complete them in order
+- If a task fails, document the error and continue with independent tasks
+- Report final status when all tasks are complete or blocked
+- Parallelize independent tasks when possible using the parallel_group field"
+        }
+
+        _ => "",
+    };
+
+    if persona_prompt.is_empty() {
+        prompt.push(format!(
+            "You are a background sub-agent of type `{subagent_type}`. Work only on the delegated task, use only the tools available to you, do not ask the user questions, and finish with a concise result."
+        ));
+    } else {
+        prompt.push(persona_prompt.to_string());
+        prompt.push("Work only on the delegated task, do not ask the user questions, and finish with a concise result.".to_string());
+    }
+
     Ok(prompt)
 }
 
@@ -1697,6 +1771,7 @@ fn resolve_agent_model(model: Option<&str>) -> String {
         .to_string()
 }
 
+#[allow(clippy::too_many_lines)]
 fn allowed_tools_for_subagent(subagent_type: &str) -> BTreeSet<String> {
     let tools = match subagent_type {
         "Explore" => vec![
@@ -1744,6 +1819,49 @@ fn allowed_tools_for_subagent(subagent_type: &str) -> BTreeSet<String> {
             "Skill",
             "StructuredOutput",
             "SendUserMessage",
+        ],
+        "ios_reviewer" | "docc_writer" => vec![
+            "read_file",
+            "glob_search",
+            "grep_search",
+            "WebFetch",
+            "ToolSearch",
+            "StructuredOutput",
+        ],
+        "planner" => vec![
+            "read_file",
+            "glob_search",
+            "grep_search",
+            "WebFetch",
+            "WebSearch",
+            "ToolSearch",
+            "TodoWrite",
+            "Skill",
+            "StructuredOutput",
+        ],
+        "network_admin" => vec![
+            "bash",
+            "read_file",
+            "glob_search",
+            "grep_search",
+            "WebFetch",
+            "WebSearch",
+            "ToolSearch",
+            "StructuredOutput",
+        ],
+        "orchestrator" => vec![
+            "bash",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "glob_search",
+            "grep_search",
+            "WebFetch",
+            "WebSearch",
+            "TodoWrite",
+            "Skill",
+            "ToolSearch",
+            "StructuredOutput",
         ],
         "statusline-setup" => vec![
             "bash",
