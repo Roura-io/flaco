@@ -386,16 +386,30 @@ if $DO_BUILD; then
         echo ""
         ok "Build succeeded"
 
-        info "Installing ${BIN_NAME} to ~/.cargo/bin..."
-        if cargo install --path crates/flaco-cli --bin "$BIN_NAME" --force 2>&1; then
-            FLACO_BIN="${HOME}/.cargo/bin/${BIN_NAME}"
-            ok "Installed to ${FLACO_BIN}"
+        info "Installing ${BIN_NAME} to ~/.local/bin..."
+        mkdir -p "$HOME/.local/bin"
+        if cp "target/release/${BIN_NAME}" "$HOME/.local/bin/${BIN_NAME}" 2>/dev/null || \
+           cp "target/release/flacoai" "$HOME/.local/bin/${BIN_NAME}" 2>/dev/null; then
+            chmod +x "$HOME/.local/bin/${BIN_NAME}"
+            FLACO_BIN="$HOME/.local/bin/${BIN_NAME}"
+            ok "Installed binary to ${FLACO_BIN}"
             BUILD_STATUS="installed (v${VERSION})"
         else
-            fail "cargo install failed."
+            fail "Binary copy failed."
             hint "The binary was built. You can copy it manually:"
-            echo -e "  ${CYAN}cp ${SCRIPT_DIR}/rust/target/release/${BIN_NAME} ~/.cargo/bin/${RESET}"
+            echo -e "  ${CYAN}cp ${SCRIPT_DIR}/rust/target/release/flacoai ~/.local/bin/${BIN_NAME}${RESET}"
             BUILD_STATUS="build ok, install failed"
+        fi
+
+        # Install bundled skills alongside the binary
+        info "Installing bundled skills..."
+        if [[ -d "crates/tools/skills" ]]; then
+            rm -rf "$HOME/.local/bin/skills"
+            cp -r "crates/tools/skills" "$HOME/.local/bin/skills"
+            SKILL_COUNT=$(find "$HOME/.local/bin/skills" -name "SKILL.md" | wc -l | tr -d ' ')
+            ok "Installed ${SKILL_COUNT} bundled engineering skills"
+        else
+            warn "Skills directory not found — bundled skills will not be available"
         fi
     else
         fail "Build failed!"
@@ -412,9 +426,9 @@ if $DO_BUILD; then
 
     cd "$SCRIPT_DIR"
 
-    # Ensure ~/.cargo/bin is on PATH for remaining steps
+    # Ensure ~/.local/bin is on PATH for remaining steps
     if ! command -v "$BIN_NAME" &>/dev/null; then
-        export PATH="$HOME/.cargo/bin:$PATH"
+        export PATH="$HOME/.local/bin:$PATH"
     fi
 else
     BUILD_STATUS="skipped"
@@ -482,20 +496,20 @@ if $DO_SHELLCFG; then
     step "Step ${CURRENT_STEP}/${TOTAL_STEPS} — ⚙️  Shell Configuration"
 
     # PATH
-    if ! grep -q '.cargo/bin' "$SHELL_PROFILE" 2>/dev/null; then
-        if ask_yn "Add ~/.cargo/bin to your PATH in ${SHELL_PROFILE}?" "y"; then
+    if ! grep -q '.local/bin' "$SHELL_PROFILE" 2>/dev/null; then
+        if ask_yn "Add ~/.local/bin to your PATH in ${SHELL_PROFILE}?" "y"; then
             echo '' >> "$SHELL_PROFILE"
             echo '# Added by flacoAi installer' >> "$SHELL_PROFILE"
-            echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> "$SHELL_PROFILE"
-            ok "Added ~/.cargo/bin to PATH in ${SHELL_PROFILE}"
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$SHELL_PROFILE"
+            ok "Added ~/.local/bin to PATH in ${SHELL_PROFILE}"
             ENV_STATUS="configured"
         else
             warn "Skipped PATH configuration."
-            hint "Make sure ~/.cargo/bin is in your PATH to use ${BIN_NAME}."
+            hint "Make sure ~/.local/bin is in your PATH to use ${BIN_NAME}."
             ENV_STATUS="skipped"
         fi
     else
-        ok "~/.cargo/bin is already in your PATH"
+        ok "~/.local/bin is already in your PATH"
         ENV_STATUS="already configured"
     fi
 
@@ -555,8 +569,8 @@ if command -v "$BIN_NAME" &>/dev/null; then
     ok "${BIN_NAME} --version → ${FLACO_VER}"
     SMOKE_STATUS="passed"
 else
-    if [[ -f "$HOME/.cargo/bin/${BIN_NAME}" ]]; then
-        FLACO_VER="$("$HOME/.cargo/bin/${BIN_NAME}" --version 2>&1 || echo 'unknown')"
+    if [[ -f "$HOME/.local/bin/${BIN_NAME}" ]]; then
+        FLACO_VER="$("$HOME/.local/bin/${BIN_NAME}" --version 2>&1 || echo 'unknown')"
         ok "${BIN_NAME} --version → ${FLACO_VER}  ${DIM}(needs PATH reload)${RESET}"
         SMOKE_STATUS="passed (PATH reload needed)"
     else
