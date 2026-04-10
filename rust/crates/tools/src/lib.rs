@@ -1470,9 +1470,10 @@ fn bundled_skills_dir() -> Option<std::path::PathBuf> {
         return Some(dev_path.canonicalize().unwrap_or(dev_path));
     }
 
-    // In release, look next to the running binary.
+    // In release, look next to the running binary (resolving symlinks).
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
+        let resolved = exe.canonicalize().unwrap_or(exe);
+        if let Some(parent) = resolved.parent() {
             let release_path = parent.join("skills");
             if release_path.is_dir() {
                 return Some(release_path);
