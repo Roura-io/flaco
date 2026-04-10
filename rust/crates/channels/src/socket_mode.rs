@@ -1,13 +1,36 @@
 //! Slack Socket Mode — connects to Slack via WebSocket instead of requiring
 //! a public webhook URL. This is the preferred mode for local/development use.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
+use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::gateway::{ChannelPersona, Gateway};
+
+/// Tracks pending (buffered) messages per user and whether a response is
+/// already in flight, so we can batch rapid-fire messages into one reply.
+struct MessageBuffer {
+    /// Queued messages per "channel:user" key.
+    pending: HashMap<String, Vec<String>>,
+    /// Whether a response task is currently running for this key.
+    in_flight: HashMap<String, bool>,
+    /// The thinking-message timestamp per key (so we don't post multiple).
+    thinking_ts: HashMap<String, String>,
+}
+
+impl MessageBuffer {
+    fn new() -> Self {
+        Self {
+            pending: HashMap::new(),
+            in_flight: HashMap::new(),
+            thinking_ts: HashMap::new(),
+        }
+    }
+}
 
 /// Run the Slack Socket Mode connection loop.
 ///
@@ -19,6 +42,7 @@ pub async fn run_socket_mode(
     gateway: Arc<Gateway>,
 ) -> Result<(), String> {
     let http = reqwest::Client::new();
+    let buffer = Arc::new(Mutex::new(MessageBuffer::new()));
 
     loop {
         tracing::info!("Requesting Socket Mode WebSocket URL...");
@@ -114,22 +138,71 @@ pub async fn run_socket_mode(
                             continue;
                         }
 
+                        let key = format!("{channel}:{user}");
+                        let buf = Arc::clone(&buffer);
                         let gateway = Arc::clone(&gateway);
                         let bot_token = bot_token.to_string();
                         let http = http.clone();
 
-                        tokio::spawn(async move {
-                            handle_slack_message(
-                                &http,
-                                &bot_token,
-                                &gateway,
-                                &user,
-                                &channel,
-                                &text,
-                                thread_ts.as_deref(),
-                            )
-                            .await;
-                        });
+                        // Add message to the buffer
+                        {
+                            let mut b = buf.lock().await;
+                            b.pending.entry(key.clone()).or_default().push(text);
+                        }
+
+                        // If a response is already in flight for this user,
+                        // the message will be picked up when it finishes.
+                        // Otherwise, spawn a handler with a short debounce.
+                        let already_running = {
+                            let b = buf.lock().await;
+                            *b.in_flight.get(&key).unwrap_or(&false)
+                        };
+
+                        if !already_running {
+                            let key2 = key.clone();
+                            let buf2 = Arc::clone(&buf);
+                            tokio::spawn(async move {
+                                // Mark in-flight
+                                {
+                                    buf2.lock().await.in_flight.insert(key2.clone(), true);
+                                }
+
+                                // Short debounce — wait for rapid follow-up messages
+                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+                                // Drain all pending messages for this user
+                                loop {
+                                    let messages = {
+                                        let mut b = buf2.lock().await;
+                                        b.pending.remove(&key2).unwrap_or_default()
+                                    };
+                                    if messages.is_empty() {
+                                        break;
+                                    }
+
+                                    let combined = messages.join("\n\n");
+                                    handle_slack_message(
+                                        &http, &bot_token, &gateway, &user, &channel, &combined,
+                                        None,
+                                    )
+                                    .await;
+
+                                    // Check if more messages arrived while we were responding
+                                    let has_more = {
+                                        let b = buf2.lock().await;
+                                        b.pending.get(&key2).is_some_and(|v| !v.is_empty())
+                                    };
+                                    if !has_more {
+                                        break;
+                                    }
+                                }
+
+                                // Clear in-flight
+                                {
+                                    buf2.lock().await.in_flight.insert(key2, false);
+                                }
+                            });
+                        }
                     }
                 }
                 _ => {
