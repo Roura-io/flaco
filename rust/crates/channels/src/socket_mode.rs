@@ -78,9 +78,7 @@ pub async fn run_socket_mode(
             let envelope_id = envelope["envelope_id"].as_str().unwrap_or("");
             if !envelope_id.is_empty() {
                 let ack = json!({"envelope_id": envelope_id});
-                let _ = write
-                    .send(Message::Text(ack.to_string().into()))
-                    .await;
+                let _ = write.send(Message::Text(ack.to_string().into())).await;
             }
 
             let event_type = envelope["type"].as_str().unwrap_or("");
@@ -179,25 +177,21 @@ async fn handle_slack_message(
     user: &str,
     channel: &str,
     text: &str,
-    thread_ts: Option<&str>,
+    _thread_ts: Option<&str>,
 ) {
-    // Add thinking reaction
-    if let Some(ts) = thread_ts {
-        let _ = http
-            .post("https://slack.com/api/reactions.add")
-            .bearer_auth(bot_token)
-            .json(&json!({"channel": channel, "timestamp": ts, "name": "thinking_face"}))
-            .send()
-            .await;
-    }
-
     // Strip bot mentions
     let clean_text = strip_mentions(text);
 
-    // Handle special commands
+    // Handle special commands — respond directly in channel
     if clean_text.trim().eq_ignore_ascii_case("/reset") {
         gateway.reset_conversation("slack", user).await;
-        send_slack_message(http, bot_token, channel, "Conversation reset! Starting fresh.", thread_ts).await;
+        send_channel_message(
+            http,
+            bot_token,
+            channel,
+            "Conversation reset! Starting fresh.",
+        )
+        .await;
         return;
     }
 
@@ -207,9 +201,12 @@ async fn handle_slack_message(
             "flacoAi is online. Model: `{}`. Active conversations: {active}.",
             gateway.model()
         );
-        send_slack_message(http, bot_token, channel, &msg, thread_ts).await;
+        send_channel_message(http, bot_token, channel, &msg).await;
         return;
     }
+
+    // Post a "thinking" placeholder message, then update it with the response
+    let thinking_ts = post_thinking_message(http, bot_token, channel, gateway.model()).await;
 
     // Get or create conversation state
     let mut conversation = gateway
@@ -239,7 +236,13 @@ async fn handle_slack_message(
 
     // Call Ollama
     let ollama_url = gateway.ollama_url().trim_end_matches("/v1");
-    let response = call_ollama(http, ollama_url, gateway.model(), &prompt_parts.join("\n\n")).await;
+    let response = call_ollama(
+        http,
+        ollama_url,
+        gateway.model(),
+        &prompt_parts.join("\n\n"),
+    )
+    .await;
 
     match response {
         Ok(reply) => {
@@ -248,23 +251,80 @@ async fn handle_slack_message(
                 .update_conversation("slack", user, conversation)
                 .await;
 
-            // Split long messages for Slack's 4096 limit
-            for part in split_message(&reply, 3900) {
-                send_slack_message(http, bot_token, channel, &part, thread_ts).await;
+            // Update the thinking message with the actual response,
+            // or post new messages if the reply is too long for one update
+            let parts = split_message(&reply, 3900);
+            if let Some(first) = parts.first() {
+                if let Some(ts) = &thinking_ts {
+                    update_message(http, bot_token, channel, ts, first).await;
+                } else {
+                    send_channel_message(http, bot_token, channel, first).await;
+                }
+            }
+            // Any overflow parts go as new channel messages
+            for part in parts.iter().skip(1) {
+                send_channel_message(http, bot_token, channel, part).await;
             }
         }
         Err(e) => {
             tracing::error!("Ollama error: {e}");
-            send_slack_message(
-                http,
-                bot_token,
-                channel,
-                &format!("Sorry, I hit an error: {e}"),
-                thread_ts,
-            )
-            .await;
+            let err_msg = format!("Sorry, I hit an error: {e}");
+            if let Some(ts) = &thinking_ts {
+                update_message(http, bot_token, channel, ts, &err_msg).await;
+            } else {
+                send_channel_message(http, bot_token, channel, &err_msg).await;
+            }
         }
     }
+}
+
+/// Post a "thinking..." placeholder and return its timestamp for later update.
+async fn post_thinking_message(
+    http: &reqwest::Client,
+    bot_token: &str,
+    channel: &str,
+    model: &str,
+) -> Option<String> {
+    let body = json!({
+        "channel": channel,
+        "text": format!("_flacoAi is thinking..._  `{model}`"),
+    });
+    let resp: Value = http
+        .post("https://slack.com/api/chat.postMessage")
+        .bearer_auth(bot_token)
+        .json(&body)
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    if resp["ok"].as_bool() == Some(true) {
+        resp["ts"].as_str().map(String::from)
+    } else {
+        None
+    }
+}
+
+/// Update an existing message in place.
+async fn update_message(
+    http: &reqwest::Client,
+    bot_token: &str,
+    channel: &str,
+    ts: &str,
+    text: &str,
+) {
+    let body = json!({
+        "channel": channel,
+        "ts": ts,
+        "text": text,
+    });
+    let _ = http
+        .post("https://slack.com/api/chat.update")
+        .bearer_auth(bot_token)
+        .json(&body)
+        .send()
+        .await;
 }
 
 async fn call_ollama(
@@ -296,17 +356,9 @@ async fn call_ollama(
         .to_string())
 }
 
-async fn send_slack_message(
-    http: &reqwest::Client,
-    bot_token: &str,
-    channel: &str,
-    text: &str,
-    thread_ts: Option<&str>,
-) {
-    let mut body = json!({"channel": channel, "text": text});
-    if let Some(ts) = thread_ts {
-        body["thread_ts"] = Value::String(ts.to_string());
-    }
+/// Send a new top-level message to the channel (not a thread reply).
+async fn send_channel_message(http: &reqwest::Client, bot_token: &str, channel: &str, text: &str) {
+    let body = json!({"channel": channel, "text": text});
     let _ = http
         .post("https://slack.com/api/chat.postMessage")
         .bearer_auth(bot_token)
