@@ -11,6 +11,7 @@
 
 pub mod gateway;
 pub mod slack;
+pub mod socket_mode;
 
 pub use gateway::{ChannelPersona, ConversationState, Gateway, GatewayConfig, IncomingMessage};
 pub use slack::SlackChannel;
