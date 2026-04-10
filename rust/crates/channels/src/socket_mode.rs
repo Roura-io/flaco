@@ -23,14 +23,26 @@ pub async fn run_socket_mode(
     loop {
         tracing::info!("Requesting Socket Mode WebSocket URL...");
 
-        // Step 1: Get a WebSocket URL from Slack
-        let ws_url = get_websocket_url(&http, app_token).await?;
+        // Step 1: Get a WebSocket URL from Slack (retry on failure)
+        let ws_url = match get_websocket_url(&http, app_token).await {
+            Ok(url) => url,
+            Err(e) => {
+                tracing::error!("Failed to get WebSocket URL: {e}. Retrying in 10 seconds...");
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                continue;
+            }
+        };
         tracing::info!("Connecting to Slack WebSocket...");
 
-        // Step 2: Connect via WebSocket
-        let (ws_stream, _) = tokio_tungstenite::connect_async(&ws_url)
-            .await
-            .map_err(|e| format!("WebSocket connect failed: {e}"))?;
+        // Step 2: Connect via WebSocket (retry on failure)
+        let (ws_stream, _) = match tokio_tungstenite::connect_async(&ws_url).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                tracing::error!("WebSocket connect failed: {e}. Retrying in 10 seconds...");
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                continue;
+            }
+        };
 
         let (mut write, mut read) = ws_stream.split();
         tracing::info!("Connected to Slack Socket Mode");
