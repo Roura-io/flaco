@@ -18,8 +18,9 @@ struct MessageBuffer {
     pending: HashMap<String, Vec<String>>,
     /// Whether a response task is currently running for this key.
     in_flight: HashMap<String, bool>,
-    /// The thinking-message timestamp per key (so we don't post multiple).
-    thinking_ts: HashMap<String, String>,
+    /// Recently seen event timestamps — used to deduplicate events that Slack
+    /// sends as both `message` and `app_mention`.
+    seen_events: Vec<String>,
 }
 
 impl MessageBuffer {
@@ -27,8 +28,21 @@ impl MessageBuffer {
         Self {
             pending: HashMap::new(),
             in_flight: HashMap::new(),
-            thinking_ts: HashMap::new(),
+            seen_events: Vec::new(),
         }
+    }
+
+    /// Returns true if this event timestamp was already seen (duplicate).
+    fn is_duplicate(&mut self, ts: &str) -> bool {
+        if self.seen_events.contains(&ts.to_string()) {
+            return true;
+        }
+        self.seen_events.push(ts.to_string());
+        // Keep only last 100 to avoid unbounded growth
+        if self.seen_events.len() > 100 {
+            self.seen_events.drain(..50);
+        }
+        false
     }
 }
 
@@ -129,13 +143,20 @@ pub async fn run_socket_mode(
                         let user = event["user"].as_str().unwrap_or("").to_string();
                         let channel = event["channel"].as_str().unwrap_or("").to_string();
                         let text = event["text"].as_str().unwrap_or("").to_string();
-                        let thread_ts = event["thread_ts"]
-                            .as_str()
-                            .or_else(|| event["ts"].as_str())
-                            .map(String::from);
+                        let event_ts = event["ts"].as_str().unwrap_or("").to_string();
 
                         if user.is_empty() || text.is_empty() {
                             continue;
+                        }
+
+                        // Deduplicate: Slack sends the same message as both
+                        // "message" and "app_mention" events.
+                        {
+                            let mut b = buffer.lock().await;
+                            if b.is_duplicate(&event_ts) {
+                                tracing::debug!("Skipping duplicate event {event_ts}");
+                                continue;
+                            }
                         }
 
                         let key = format!("{channel}:{user}");
