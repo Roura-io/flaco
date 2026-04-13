@@ -14,7 +14,13 @@ setup to start grading. If something is broken, it's a bug — tell me.
 ## 1. The web UI (main demo)
 
 Open **[http://mac.home:3033](http://mac.home:3033)** in a browser on your
-network.
+network. Works on **desktop, iPad, and iPhone** — the layout collapses
+from a 3-column grid on desktop to a 2-column layout on iPad landscape
+(right sidebar becomes a drawer opened by the ⚙ tools button in the
+header), to a single-column stack on iPad portrait / phones (the
+workspace nav becomes a sticky horizontal pill bar). Add it to your
+iPad home screen (Share → Add to Home Screen) and it launches full
+screen with the flacoAi status bar color.
 
 What to look for:
 - **Header** — `flacoAi · powered by Roura.io` wordmark, online indicator,
