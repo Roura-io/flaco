@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.roura.flaco</string>
+
+  <!--
+    flacoAi v2 web server supervisor.
+
+    Reads all paths / ports from /opt/homebrew/etc/flaco/config.toml via
+    the flaco-config crate. KeepAlive.Crashed=true means launchd will
+    restart us on any non-zero exit, but SuccessfulExit=false means a
+    deliberate `flaco-v2` exit is respected. ThrottleInterval 10 prevents
+    a rapid crash loop from hammering the machine.
+
+    Logs go to ~/Library/Logs/flaco/flaco-v2.{stdout,stderr}.log so both
+    `tail -f` and `flaco doctor` can find them at a well-known path.
+
+    Env file is sourced via a tiny bootstrap shim so tokens live in
+    /opt/homebrew/etc/flaco/secrets.env (mode 600) instead of the plist.
+  -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>if [ -f /opt/homebrew/etc/flaco/secrets.env ]; then set -a; . /opt/homebrew/etc/flaco/secrets.env; set +a; fi; exec /Users/roura.io.server/infra/flaco-v2 --config /opt/homebrew/etc/flaco/config.toml web</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>/Users/roura.io.server</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/roura.io.server</string>
+
+  <key>StandardOutPath</key>
+  <string>/Users/roura.io.server/Library/Logs/flaco/flaco-v2.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/roura.io.server/Library/Logs/flaco/flaco-v2.stderr.log</string>
+</dict>
+</plist>
