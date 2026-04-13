@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use flaco_config::Config;
 use flaco_core::features::Features;
 use flaco_core::memory::Memory;
 use flaco_core::ollama::OllamaClient;
@@ -36,15 +37,21 @@ use flaco_core::tools::ToolRegistry;
 use flaco_web::AppState;
 
 #[derive(Debug, Parser)]
-#[command(name = "flaco-v2", about = "flacoAi v2 — unified brain")]
+#[command(name = "flaco-v2", about = "flacoAi — powered by Roura.io")]
 struct Cli {
-    /// Path to the SQLite memory database.
-    #[arg(long, default_value = "~/infra/flaco.db")]
-    db: String,
+    /// Path to the TOML config file. Falls back to $FLACO_CONFIG_PATH,
+    /// /opt/homebrew/etc/flaco/config.toml, ~/.config/flaco/config.toml,
+    /// then built-in defaults.
+    #[arg(long)]
+    config: Option<PathBuf>,
 
-    /// Port for the web UI.
-    #[arg(long, default_value_t = 3031)]
-    web_port: u16,
+    /// Override the config's SQLite path.
+    #[arg(long)]
+    db: Option<String>,
+
+    /// Override the config's web port.
+    #[arg(long)]
+    web_port: Option<u16>,
 
     /// Default user id for single-user surfaces (TUI, web).
     #[arg(long, default_value = "chris")]
@@ -98,8 +105,20 @@ fn expand_home(p: &str) -> PathBuf {
     PathBuf::from(p)
 }
 
-fn build_runtime(db_path: &PathBuf, user: &str) -> Result<(Arc<Runtime>, Arc<Features>)> {
+fn build_runtime(cfg: &Config, user: &str) -> Result<(Arc<Runtime>, Arc<Features>)> {
+    let db_path = &cfg.paths.db;
     let memory = Memory::open(db_path).with_context(|| format!("open {}", db_path.display()))?;
+    // Ollama client honors FLACO_OLLAMA_URL + FLACO_MODEL env vars (which
+    // Config::load already copied from the env). Pass config-driven values
+    // via env so the OllamaClient constructor picks them up.
+    std::env::set_var("OLLAMA_HOST", cfg.ollama.base_url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .split(':').next().unwrap_or("127.0.0.1"));
+    if let Some(port) = cfg.ollama.base_url.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()) {
+        std::env::set_var("OLLAMA_PORT", port.to_string());
+    }
+    std::env::set_var("FLACO_MODEL", &cfg.ollama.default_model);
     let ollama = OllamaClient::from_env();
     let personas = PersonaRegistry::defaults();
 
@@ -126,10 +145,7 @@ fn build_runtime(db_path: &PathBuf, user: &str) -> Result<(Arc<Runtime>, Arc<Fea
     } else {
         tracing::warn!("GitHub not configured — github_create_pr disabled");
     }
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
-    reg.register(Arc::new(CreateShortcut::new(home.join("Downloads/flaco-shortcuts"))));
+    reg.register(Arc::new(CreateShortcut::new(&cfg.paths.shortcuts_dir)));
     reg.register(Arc::new(Remember { memory: memory.clone(), default_user: user.into() }));
     reg.register(Arc::new(Recall { memory: memory.clone(), default_user: user.into() }));
     reg.register(Arc::new(ListMemories { memory: memory.clone(), default_user: user.into() }));
@@ -152,17 +168,38 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let db_path = expand_home(&cli.db);
-    if let Some(parent) = db_path.parent() {
+
+    // Load config first. Precedence: --config flag > FLACO_CONFIG_PATH env
+    // > /opt/homebrew/etc/flaco/config.toml > ~/.config/flaco/config.toml
+    // > built-in defaults. Per-field env vars (FLACO_DB_PATH, FLACO_WEB_PORT,
+    // FLACO_OLLAMA_URL, FLACO_MODEL, FLACO_TIER) override the file.
+    let mut cfg = Config::load(cli.config.as_deref())
+        .context("failed to load flaco-config")?;
+
+    // CLI flags override env + file, for one-shot debugging.
+    if let Some(db) = &cli.db {
+        cfg.paths.db = expand_home(db);
+    }
+    if let Some(port) = cli.web_port {
+        cfg.server.web_port = port;
+    }
+
+    // Ensure the DB dir exists before we try to open it.
+    if let Some(parent) = cfg.paths.db.parent() {
         std::fs::create_dir_all(parent).ok();
     }
 
-    let (runtime, features) = build_runtime(&db_path, &cli.user)?;
-    tracing::info!("flaco-v2 up · db={}", db_path.display());
+    let (runtime, features) = build_runtime(&cfg, &cli.user)?;
+    tracing::info!(
+        "flaco-v2 up · db={} · source={:?}",
+        cfg.paths.db.display(),
+        cfg.source()
+    );
 
+    let web_port = cfg.server.web_port;
     match cli.command.unwrap_or(Command::Serve) {
-        Command::Serve => serve_all(runtime, features, cli.web_port, cli.user).await,
-        Command::Web => serve_web(runtime, features, cli.web_port, cli.user).await,
+        Command::Serve => serve_all(runtime, features, web_port, cli.user).await,
+        Command::Web => serve_web(runtime, features, web_port, cli.user).await,
         Command::Slack => serve_slack(runtime, features).await,
         Command::Tui => flaco_tui_v2::run(runtime, features).await,
         Command::Ask { text } => {
@@ -207,7 +244,12 @@ async fn main() -> Result<()> {
             let snap = serde_json::json!({
                 "version": "flaco-v2",
                 "model": runtime.ollama.model(),
-                "db": db_path.to_string_lossy(),
+                "db": cfg.paths.db.to_string_lossy(),
+                "shortcuts_dir": cfg.paths.shortcuts_dir.to_string_lossy(),
+                "web_port": cfg.server.web_port,
+                "ollama_base": cfg.ollama.base_url,
+                "tier": cfg.tools.tier.as_str(),
+                "config_source": format!("{:?}", cfg.source()),
                 "default_user": cli.user,
                 "tools": tools,
                 "memories": memories,

@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+flaco-config = { path = "../flaco-config" }
 flaco-core = { path = "../flaco-core" }
 flaco-web = { path = "../flaco-web" }
 flaco-slack-v2 = { path = "../flaco-slack-v2" }
