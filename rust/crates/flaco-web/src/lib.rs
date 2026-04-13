@@ -44,10 +44,26 @@ pub fn router(state: AppState) -> Router {
         .route("/tool-log", get(tool_log))
         .route("/new", post(new_conversation))
         .route("/health", get(health))
+        .route("/status", get(status))
         .with_state(state)
 }
 
 async fn health() -> &'static str { "ok" }
+
+async fn status(State(state): State<AppState>) -> impl IntoResponse {
+    let tools = state.runtime.tools.names();
+    let conv_count = state.runtime.memory.list_conversations(10_000).map(|v| v.len()).unwrap_or(0);
+    let mem_count = state.runtime.memory.all_facts(&state.default_user, 10_000).map(|v| v.len()).unwrap_or(0);
+    let body = serde_json::json!({
+        "version": "flaco-v2",
+        "model": state.runtime.ollama.model(),
+        "tools": tools,
+        "memories": mem_count,
+        "conversations": conv_count,
+        "default_user": state.default_user,
+    });
+    axum::Json(body)
+}
 
 async fn index() -> Html<&'static str> {
     Html(INDEX_HTML)
