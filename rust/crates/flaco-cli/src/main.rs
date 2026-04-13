@@ -4469,7 +4469,10 @@ mod tests {
         let help = commands::render_slash_command_help();
         assert!(help.contains("Slash commands"));
         assert!(help.contains("Tab completes commands inside the REPL."));
-        assert!(help.contains("available via flaco --resume SESSION.json"));
+        // The help copy renames `flaco` → `flacoai` so the annotation
+        // matches the installed binary name. Keep this test in lockstep
+        // with `crates/commands/src/lib.rs::render_slash_command_help`.
+        assert!(help.contains("available via flacoai --resume SESSION.json"));
     }
 
     #[test]
