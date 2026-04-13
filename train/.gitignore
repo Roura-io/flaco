@@ -1,0 +1,8 @@
+data/raw/
+data/pairs/
+*.pyc
+__pycache__/
+.venv/
+*.gguf
+adapter_model.safetensors
+adapter_config.json
