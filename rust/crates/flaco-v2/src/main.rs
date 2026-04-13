@@ -11,6 +11,8 @@
 //! All surfaces share a single Runtime backed by the same SQLite memory file
 //! (default ~/infra/flaco.db, override with --db).
 
+mod doctor;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -99,6 +101,9 @@ enum Command {
     /// snapshot opens cleanly before returning. Intended to be driven by the
     /// io.roura.flaco.backup launchd agent but also safe to run by hand.
     Backup,
+    /// Run a health check: config, db, FTS5, Ollama, backup freshness,
+    /// disk free space, launchd supervisors. Exit non-zero on any failure.
+    Doctor,
 }
 
 fn expand_home(p: &str) -> PathBuf {
@@ -196,9 +201,13 @@ async fn main() -> Result<()> {
 
     // Lightweight subcommands that don't need a runtime/Memory handle —
     // specifically, anything that would cause Rust and an external
-    // sqlite3 process to fight over the same db connection.
+    // sqlite3 process to fight over the same db connection, or anything
+    // that needs to probe the system rather than serve it.
     if matches!(cli.command, Some(Command::Backup)) {
         return run_backup(&cfg);
+    }
+    if matches!(cli.command, Some(Command::Doctor)) {
+        return doctor::run(&cfg);
     }
 
     let (runtime, features) = build_runtime(&cfg, &cli.user)?;
@@ -250,6 +259,7 @@ async fn main() -> Result<()> {
         }
         Command::ImportMemory { dir } => import_memory(&dir, &runtime, &cli.user).await,
         Command::Backup => unreachable!("Backup handled before build_runtime"),
+        Command::Doctor => unreachable!("Doctor handled before build_runtime"),
         Command::Status => {
             let tools = runtime.tools.names();
             let memories = runtime.memory.all_facts(&cli.user, 10_000)?.len();
