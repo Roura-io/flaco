@@ -18,6 +18,7 @@ flaco-web = { path = "../flaco-web" }
 flaco-slack-v2 = { path = "../flaco-slack-v2" }
 flaco-tui-v2 = { path = "../flaco-tui-v2" }
 serde_json.workspace = true
+axum = "0.8"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

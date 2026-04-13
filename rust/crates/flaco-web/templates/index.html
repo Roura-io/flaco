@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>flaco · unified brain</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg: #0b0d10;
+      --panel: #14181d;
+      --panel-2: #1b2028;
+      --border: #222831;
+      --fg: #e6e8ec;
+      --muted: #8b93a1;
+      --accent: #7c5cff;
+      --accent-2: #3ecf8e;
+      --err: #ff6b6b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif; }
+    body { display: grid; grid-template-columns: 260px 1fr 300px; grid-template-rows: 56px 1fr; grid-template-areas: "hdr hdr hdr" "side main right"; min-height: 100vh; }
+    header { grid-area: hdr; display: flex; align-items: center; padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--border); gap: 12px; }
+    header .logo { font-weight: 700; font-size: 18px; letter-spacing: -0.5px; }
+    header .logo span { color: var(--accent); }
+    header .sub { color: var(--muted); font-size: 13px; }
+    aside.side { grid-area: side; background: var(--panel); border-right: 1px solid var(--border); padding: 16px; overflow-y: auto; }
+    aside.right { grid-area: right; background: var(--panel); border-left: 1px solid var(--border); padding: 16px; overflow-y: auto; }
+    main { grid-area: main; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+    h3 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+    .chip { display: inline-block; background: var(--panel-2); color: var(--fg); border: 1px solid var(--border); border-radius: 14px; padding: 4px 10px; font-size: 12px; margin-right: 6px; margin-bottom: 6px; cursor: pointer; }
+    .chip:hover { border-color: var(--accent); color: var(--accent); }
+    form.row { display: flex; gap: 8px; margin-bottom: 16px; }
+    input[type=text], textarea { flex: 1; background: var(--panel-2); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; font-family: inherit; }
+    textarea { min-height: 80px; resize: vertical; }
+    button { background: var(--accent); color: white; border: 0; border-radius: 8px; padding: 10px 16px; font-weight: 600; font-size: 14px; cursor: pointer; }
+    button:hover { filter: brightness(1.1); }
+    button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+    .msg { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+    .msg.user { border-left: 3px solid var(--accent-2); }
+    .msg.flaco { border-left: 3px solid var(--accent); }
+    .msg.err { border-left: 3px solid var(--err); color: var(--err); }
+    .msg b { display: block; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px; }
+    .md p { margin: 6px 0; line-height: 1.55; }
+    .md code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+    .md pre { background: var(--panel-2); padding: 12px; border-radius: 8px; overflow-x: auto; }
+    .md a { color: var(--accent); }
+    .cites { list-style: none; padding: 0; margin: 12px 0 0; border-top: 1px solid var(--border); padding-top: 10px; }
+    .cites li { padding: 6px 0; font-size: 13px; }
+    .cites a { color: var(--accent); text-decoration: none; }
+    .cites a:hover { text-decoration: underline; }
+    .cites .snip { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+    .mems, .convs { list-style: none; padding: 0; margin: 0; }
+    .mems li, .convs li { padding: 8px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
+    .mems .kind { display: inline-block; font-size: 10px; text-transform: uppercase; padding: 2px 6px; background: var(--panel-2); border-radius: 4px; margin-right: 6px; color: var(--muted); }
+    .pill { display: inline-block; background: var(--accent-2); color: #003; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; margin-left: 8px; }
+    .tool-section { margin-bottom: 24px; }
+    details summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 6px 0; }
+    details[open] summary { color: var(--fg); }
+    .htmx-indicator { color: var(--muted); font-size: 12px; margin-left: 10px; }
+    .htmx-request .htmx-indicator { display: inline-block; }
+    .htmx-indicator { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">flaco<span>_v2</span></div>
+    <div class="sub">unified brain · one memory · three surfaces</div>
+    <span class="pill">web</span>
+  </header>
+
+  <aside class="side">
+    <div class="tool-section">
+      <h3>Surfaces</h3>
+      <div class="chip">● web</div>
+      <div class="chip">slack</div>
+      <div class="chip">tui</div>
+    </div>
+
+    <div class="tool-section">
+      <h3>Quick actions</h3>
+      <button class="ghost chip" onclick="document.getElementById('chat-input').value='What did I work on today?';document.getElementById('chat-form').requestSubmit();">What did I work on?</button>
+      <button class="ghost chip" onclick="document.getElementById('research-topic').focus();">Research a topic</button>
+      <button class="ghost chip" onclick="document.getElementById('shortcut-name').focus();">Make a Shortcut</button>
+      <button class="ghost chip" onclick="document.getElementById('scaffold-idea').focus();">Scaffold an idea</button>
+    </div>
+
+    <div class="tool-section">
+      <h3>Conversations</h3>
+      <div id="conv-list" hx-get="/conversations" hx-trigger="load, every 15s" hx-swap="innerHTML">
+        <em>loading…</em>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <section>
+      <h3>chat</h3>
+      <form id="chat-form" class="row" hx-post="/chat" hx-target="#chat-log" hx-swap="beforeend" hx-on::after-request="this.reset()">
+        <input id="chat-input" type="text" name="message" placeholder="Ask flaco anything — it has memory across Slack, TUI, and here." autocomplete="off">
+        <button type="submit">Send</button>
+        <span class="htmx-indicator">thinking…</span>
+      </form>
+      <div id="chat-log"></div>
+    </section>
+
+    <section>
+      <h3>research · perplexity-style with citations</h3>
+      <form class="row" hx-post="/research" hx-target="#research-out" hx-swap="innerHTML">
+        <input id="research-topic" type="text" name="topic" placeholder="e.g. What are the best Rust web frameworks in 2026?">
+        <button type="submit">Research</button>
+        <span class="htmx-indicator">searching…</span>
+      </form>
+      <div id="research-out"></div>
+    </section>
+
+    <section>
+      <h3>siri shortcut generator</h3>
+      <form class="row" hx-post="/shortcut" hx-target="#shortcut-out" hx-swap="innerHTML">
+        <input id="shortcut-name" type="text" name="name" placeholder="Shortcut name">
+        <input type="text" name="description" placeholder="What should it do?">
+        <button type="submit">Generate</button>
+      </form>
+      <div id="shortcut-out"></div>
+    </section>
+
+    <section>
+      <h3>jira → code scaffold</h3>
+      <form class="row" hx-post="/scaffold" hx-target="#scaffold-out" hx-swap="innerHTML">
+        <input id="scaffold-idea" type="text" name="idea" placeholder="I want to build…">
+        <input type="text" name="project_key" value="FLACO" placeholder="Jira project key">
+        <button type="submit">Scaffold</button>
+      </form>
+      <div id="scaffold-out"></div>
+    </section>
+  </main>
+
+  <aside class="right">
+    <div class="tool-section">
+      <h3>Memory</h3>
+      <form class="row" hx-post="/memories" hx-target="#mem-list" hx-swap="innerHTML" hx-on::after-request="this.reset()">
+        <input type="text" name="content" placeholder="Remember that…">
+        <button type="submit">+</button>
+      </form>
+      <div id="mem-list" hx-get="/memories" hx-trigger="load, every 20s" hx-swap="innerHTML">
+        <em>loading…</em>
+      </div>
+    </div>
+  </aside>
+</body>
+</html>
