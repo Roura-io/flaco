@@ -83,6 +83,8 @@ enum Command {
         #[arg(long, default_value = "~/.claude/projects/-Users-roura-io-Documents-pi-projects/memory")]
         dir: String,
     },
+    /// Print a JSON snapshot of the runtime state (tools, model, counts).
+    Status,
 }
 
 fn expand_home(p: &str) -> PathBuf {
@@ -183,6 +185,22 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::SeedFromClaude { dir } => seed_from_claude(&dir, &runtime, &cli.user).await,
+        Command::Status => {
+            let tools = runtime.tools.names();
+            let memories = runtime.memory.all_facts(&cli.user, 10_000)?.len();
+            let conversations = runtime.memory.list_conversations(10_000)?.len();
+            let snap = serde_json::json!({
+                "version": "flaco-v2",
+                "model": runtime.ollama.model(),
+                "db": db_path.to_string_lossy(),
+                "default_user": cli.user,
+                "tools": tools,
+                "memories": memories,
+                "conversations": conversations,
+            });
+            println!("{}", serde_json::to_string_pretty(&snap)?);
+            Ok(())
+        }
     }
 }
 
