@@ -33,7 +33,25 @@ impl Tool for Remember {
         let content = args.get("content").and_then(Value::as_str).unwrap_or("").trim();
         if content.is_empty() { return Ok(ToolResult::err("content required")); }
         let kind = args.get("kind").and_then(Value::as_str).unwrap_or("fact");
+        // Ignore any `user` override the model sends — each surface pins its
+        // own user, and case mismatches silently create ghost memory silos.
         let user = &self.default_user;
+
+        // Idempotency: if a fact with this exact content already exists for
+        // this user, don't create a duplicate. This is the second line of
+        // defense against the tool-loop duplication bug — even if the
+        // runtime dedup fails to catch a repeat call (because the model
+        // sent a slightly different arg shape), the memory store itself
+        // refuses to double-write.
+        if let Ok(existing) = self.memory.all_facts(user, 10_000) {
+            if let Some(row) = existing.iter().find(|f| f.content == content) {
+                return Ok(ToolResult::ok_text(format!(
+                    "already remembered #{} [{}]: {}",
+                    row.id, row.kind, content
+                )));
+            }
+        }
+
         let id = self.memory.remember_fact(user, kind, content, None)?;
         Ok(ToolResult::ok_text(format!("remembered #{id} [{kind}]: {content}")))
     }

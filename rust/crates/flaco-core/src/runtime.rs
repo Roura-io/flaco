@@ -1,6 +1,7 @@
 //! Runtime: the glue that binds Session + Ollama + ToolRegistry into a single
 //! `handle` method each surface can call.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,29 @@ use crate::ollama::{ChatMessage, OllamaClient};
 use crate::persona::PersonaRegistry;
 use crate::session::Session;
 use crate::tools::ToolRegistry;
+
+/// Normalize a tool-call invocation into a deduplication key. JSON keys are
+/// sorted so `{"a":1,"b":2}` and `{"b":2,"a":1}` produce the same key.
+pub fn dedup_key(tool_name: &str, args: &serde_json::Value) -> String {
+    fn canonicalize(v: &serde_json::Value) -> serde_json::Value {
+        match v {
+            serde_json::Value::Object(map) => {
+                let mut sorted: std::collections::BTreeMap<String, serde_json::Value> =
+                    std::collections::BTreeMap::new();
+                for (k, val) in map {
+                    sorted.insert(k.clone(), canonicalize(val));
+                }
+                serde_json::to_value(sorted).unwrap_or(serde_json::Value::Null)
+            }
+            serde_json::Value::Array(arr) => {
+                serde_json::Value::Array(arr.iter().map(canonicalize).collect())
+            }
+            other => other.clone(),
+        }
+    }
+    let canon = canonicalize(args);
+    format!("{tool_name}::{}", serde_json::to_string(&canon).unwrap_or_default())
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Surface {
@@ -137,6 +161,14 @@ impl Runtime {
             .unwrap_or(true);
         session.append_user(user_text)?;
 
+        // Dedup state for this turn. Every (tool_name, canonicalized_args)
+        // pair that has already been executed goes in here; repeats short-
+        // circuit with a "already done" tool result so the model stops
+        // calling them. This fixes the v1/v2 bug where qwen3 would fire
+        // `remember` 6 times for the same fact.
+        let mut seen_calls: HashSet<String> = HashSet::new();
+        let mut all_duplicates_bailout = false;
+
         let mut round = 0usize;
         loop {
             round += 1;
@@ -171,9 +203,36 @@ impl Runtime {
 
             // If the model asked for tools, run them and continue.
             if !msg.tool_calls.is_empty() && round <= self.config.max_tool_rounds {
+                let mut executed_any = 0usize;
+                let mut duplicate_count = 0usize;
                 for call in &msg.tool_calls {
                     let name = call.function.name.clone();
                     let args = call.function.arguments.clone();
+                    let key = dedup_key(&name, &args);
+
+                    // Short-circuit identical repeat calls with a tool
+                    // result that nudges the model to finish. We still
+                    // record the repeat to the conversation so the model
+                    // sees it, but we never execute the underlying tool
+                    // twice.
+                    if seen_calls.contains(&key) {
+                        duplicate_count += 1;
+                        let warn = format!(
+                            "[flaco] already executed {name} with these exact args in this turn — not running it again. Write your final reply now."
+                        );
+                        tracing::warn!(tool = %name, "skipping duplicate tool call");
+                        session.append_tool_result(&name, &warn)?;
+                        if let Some(tx) = &tx {
+                            let _ = tx.send(Event::ToolResult {
+                                name: name.clone(),
+                                output: warn,
+                                ok: false,
+                            });
+                        }
+                        continue;
+                    }
+                    seen_calls.insert(key);
+
                     if let Some(tx) = &tx {
                         let _ = tx.send(Event::ToolCall { name: name.clone(), args: args.clone() });
                     }
@@ -187,6 +246,7 @@ impl Runtime {
                         .memory
                         .record_tool_call(&session.conversation.id, &name, &args_str, &result_json);
                     session.append_tool_result(&name, &result.output)?;
+                    executed_any += 1;
                     if let Some(tx) = &tx {
                         let _ = tx.send(Event::ToolResult {
                             name: name.clone(),
@@ -194,6 +254,35 @@ impl Runtime {
                             ok: result.ok,
                         });
                     }
+                }
+
+                // If this round was nothing but duplicates, the model is
+                // stuck in a loop. Force it to produce a text response by
+                // bailing out of the tool loop on the next iteration.
+                if executed_any == 0 && duplicate_count > 0 {
+                    tracing::warn!(
+                        duplicates = duplicate_count,
+                        "tool loop had only duplicate calls — forcing text response"
+                    );
+                    all_duplicates_bailout = true;
+                    // Loop one more time; the tool results we just appended
+                    // tell the model to stop, and the next response should
+                    // be text. If it's still tool calls, we break below.
+                }
+                if all_duplicates_bailout && round > 1 {
+                    // We've already warned the model; if it's STILL trying
+                    // to call tools on the next round, synthesize a final
+                    // reply from what we have and return.
+                    let fallback = if msg.content.trim().is_empty() {
+                        "Done.".to_string()
+                    } else {
+                        msg.content.clone()
+                    };
+                    session.append_assistant(&fallback)?;
+                    if let Some(tx) = &tx {
+                        let _ = tx.send(Event::Done { full_text: fallback.clone() });
+                    }
+                    return Ok(fallback);
                 }
                 continue;
             }

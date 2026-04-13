@@ -144,3 +144,15 @@ fn runtime_smoke_wires_components() {
     assert_eq!(session.surface, "web");
     assert_eq!(session.user_id, "chris");
 }
+
+#[test]
+fn dedup_key_is_order_independent() {
+    use flaco_core::runtime::dedup_key;
+    let a = serde_json::json!({"content": "hello", "kind": "fact"});
+    let b = serde_json::json!({"kind": "fact", "content": "hello"});
+    assert_eq!(dedup_key("remember", &a), dedup_key("remember", &b));
+    let c = serde_json::json!({"content": "hello", "kind": "preference"});
+    assert_ne!(dedup_key("remember", &a), dedup_key("remember", &c));
+    let d = serde_json::json!({"content": "hello", "kind": "fact"});
+    assert_ne!(dedup_key("remember", &a), dedup_key("recall", &d));
+}
