@@ -12,6 +12,21 @@
 
 flacoAi is a self-hosted alternative to cloud-based AI coding assistants. Everything runs locally on your machine using [Ollama](https://ollama.com) — your code never leaves your computer.
 
+## v3.0.0-rc1 — latest
+
+flacoAi v3 is a unified runtime that serves Slack, TUI, Web, and CLI from **one brain, one memory, and one typed tool registry**. It adds:
+
+- **Jarvis-mode** — natural-language intent router. Type `clear`, `reset`, `clear this chat`, `how are you?`, `what's on my plate` — it all works instantly, no slash-command memorisation, no LLM round-trip for meta-commands.
+- **Production hardening** — automated `sqlite3 VACUUM INTO` backups, launchd supervisor with `KeepAlive`, a TOML config file at `/opt/homebrew/etc/flaco/config.toml`, a tool-loop duplication fix that was silently writing duplicate memories on v2, and a `flaco-v2 doctor` health probe that validates everything in one command.
+- **CI** — GitHub Actions runs `cargo test` + `cargo clippy -- -D warnings` on every push. Live-Ollama integration test ships too, opt-in via `--ignored`.
+- **v1 compat preserved** — the `flacoai` CLI and `flacoai-server` Slack bot are untouched. Safe to upgrade incrementally.
+
+**Read more:** [`RELEASE_NOTES_v3.0.0.md`](./RELEASE_NOTES_v3.0.0.md)
+
+**Run the smoke:** `bash deploy/smoke-v3.sh` → 13 probes, exit 0 if green.
+
+**Everything below is still accurate for the v1 `flacoai` CLI.**
+
 ## Features
 
 - **Interactive REPL** — chat with your AI coding agent in the terminal
