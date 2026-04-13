@@ -318,6 +318,18 @@ impl Memory {
         Ok(iter.collect::<std::result::Result<_, _>>()?)
     }
 
+    pub fn recent_tool_calls(&self, limit: usize) -> Result<Vec<(String, String, i64)>> {
+        let c = self.inner.lock().unwrap();
+        let mut stmt = c.prepare(
+            "SELECT tool_name, args_json, created_at FROM tool_calls
+             ORDER BY created_at DESC LIMIT ?1",
+        )?;
+        let iter = stmt.query_map(params![limit as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+        })?;
+        Ok(iter.collect::<std::result::Result<_, _>>()?)
+    }
+
     pub fn list_conversations(&self, limit: usize) -> Result<Vec<Conversation>> {
         let c = self.inner.lock().unwrap();
         let mut stmt = c.prepare(

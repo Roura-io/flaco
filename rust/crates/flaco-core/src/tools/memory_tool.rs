@@ -33,10 +33,7 @@ impl Tool for Remember {
         let content = args.get("content").and_then(Value::as_str).unwrap_or("").trim();
         if content.is_empty() { return Ok(ToolResult::err("content required")); }
         let kind = args.get("kind").and_then(Value::as_str).unwrap_or("fact");
-        let user = args
-            .get("user")
-            .and_then(Value::as_str)
-            .unwrap_or(&self.default_user);
+        let user = &self.default_user;
         let id = self.memory.remember_fact(user, kind, content, None)?;
         Ok(ToolResult::ok_text(format!("remembered #{id} [{kind}]: {content}")))
     }
@@ -61,13 +58,18 @@ impl Tool for Recall {
     }
     async fn call(&self, args: Value) -> Result<ToolResult> {
         let q = args.get("query").and_then(Value::as_str).unwrap_or("");
-        let user = args
-            .get("user")
-            .and_then(Value::as_str)
-            .unwrap_or(&self.default_user);
+        // Ignore any `user` override the model sends — each surface pins
+        // its own user, and case-mismatches (Chris vs chris) were silently
+        // hiding memories. Always use the surface default.
+        let user = &self.default_user;
         let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(10) as usize;
-        let hits = self.memory.search_facts(user, q, limit)?;
-        if hits.is_empty() { return Ok(ToolResult::ok_text("(no memories match)")); }
+        let mut hits = self.memory.search_facts(user, q, limit)?;
+        if hits.is_empty() {
+            // Fall back to the most-recent facts so the model always gets
+            // some context instead of a dead-end "no match".
+            hits = self.memory.all_facts(user, limit)?;
+            if hits.is_empty() { return Ok(ToolResult::ok_text("(no memories stored)")); }
+        }
         let mut s = String::new();
         for h in &hits {
             s.push_str(&format!("#{} [{}] {}\n", h.id, h.kind, h.content));
@@ -92,10 +94,7 @@ impl Tool for ListMemories {
         }
     }
     async fn call(&self, args: Value) -> Result<ToolResult> {
-        let user = args
-            .get("user")
-            .and_then(Value::as_str)
-            .unwrap_or(&self.default_user);
+        let user = &self.default_user;
         let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
         let hits = self.memory.all_facts(user, limit)?;
         if hits.is_empty() { return Ok(ToolResult::ok_text("(no memories yet)")); }

@@ -53,6 +53,10 @@
     .mems, .convs { list-style: none; padding: 0; margin: 0; }
     .mems li, .convs li { padding: 8px 0; font-size: 13px; border-bottom: 1px solid var(--border); }
     .mems .kind { display: inline-block; font-size: 10px; text-transform: uppercase; padding: 2px 6px; background: var(--panel-2); border-radius: 4px; margin-right: 6px; color: var(--muted); }
+    .tools { list-style: none; padding: 0; margin: 0; }
+    .tools li { padding: 6px 0; font-size: 12px; border-bottom: 1px solid var(--border); }
+    .tools code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; color: var(--accent-2); }
+    .tools .snip { color: var(--muted); display: block; margin-top: 2px; }
     .pill { display: inline-block; background: var(--accent-2); color: #003; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; margin-left: 8px; }
     .tool-section { margin-bottom: 24px; }
     details summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 6px 0; }
@@ -136,6 +140,13 @@
   </main>
 
   <aside class="right">
+    <div class="tool-section">
+      <h3>Tool log</h3>
+      <div id="tool-log" hx-get="/tool-log" hx-trigger="load, every 10s" hx-swap="innerHTML">
+        <em>loading…</em>
+      </div>
+    </div>
+
     <div class="tool-section">
       <h3>Memory</h3>
       <form class="row" hx-post="/memories" hx-target="#mem-list" hx-swap="innerHTML" hx-on::after-request="this.reset()">

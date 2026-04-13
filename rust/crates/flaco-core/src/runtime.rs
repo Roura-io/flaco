@@ -95,6 +95,31 @@ impl Runtime {
         )
     }
 
+    /// Generate a short title from the first user message and store it on
+    /// the conversation. Non-fatal on failure — titling is cosmetic.
+    pub async fn auto_title(&self, session: &Session, first_message: &str) {
+        if session.conversation.title.is_some() { return; }
+        let prompt = format!(
+            "Write a punchy 3-6 word title (no quotes, no period) for this conversation opener: \"{first_message}\""
+        );
+        let messages = vec![
+            ChatMessage::system("You write very short, vivid conversation titles. Reply with just the title, nothing else."),
+            ChatMessage::user(prompt),
+        ];
+        if let Ok(resp) = self.ollama.chat(messages, vec![]).await {
+            let title = resp
+                .message
+                .content
+                .trim()
+                .trim_matches('"')
+                .trim()
+                .to_string();
+            if !title.is_empty() && title.len() < 120 {
+                let _ = self.memory.set_title(&session.conversation.id, &title);
+            }
+        }
+    }
+
     /// Run a single turn: append the user message, let the model think (with
     /// tool-calling loop up to `max_tool_rounds`), and return the final
     /// assistant text. Events are pushed into `tx` for surfaces that want
@@ -105,6 +130,11 @@ impl Runtime {
         user_text: &str,
         tx: Option<mpsc::UnboundedSender<Event>>,
     ) -> Result<String> {
+        let first_message = self
+            .memory
+            .recent_messages(&session.conversation.id, 50)
+            .map(|h| h.iter().all(|m| m.role != Role::User))
+            .unwrap_or(true);
         session.append_user(user_text)?;
 
         let mut round = 0usize;
@@ -174,6 +204,16 @@ impl Runtime {
             if let Some(tx) = &tx {
                 let _ = tx.send(Event::TextChunk(text.clone()));
                 let _ = tx.send(Event::Done { full_text: text.clone() });
+            }
+            if first_message {
+                // Fire-and-forget a title generation; we've already saved the
+                // turn, so failure is harmless.
+                let this = self.clone();
+                let session = session.clone();
+                let first = user_text.to_string();
+                tokio::spawn(async move {
+                    this.auto_title(&session, &first).await;
+                });
             }
             return Ok(text);
         }

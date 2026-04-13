@@ -40,6 +40,7 @@ pub fn router(state: AppState) -> Router {
         .route("/scaffold", post(scaffold))
         .route("/memories", get(memories_list).post(memories_save))
         .route("/conversations", get(conversations_list))
+        .route("/tool-log", get(tool_log))
         .route("/health", get(health))
         .with_state(state)
 }
@@ -155,6 +156,29 @@ async fn memories_save(State(state): State<AppState>, Form(form): Form<MemForm>)
     let kind = form.kind.as_deref().unwrap_or("fact");
     let _ = state.features.remember(&state.default_user, &form.content, kind);
     memories_list(State(state)).await.into_response()
+}
+
+async fn tool_log(State(state): State<AppState>) -> impl IntoResponse {
+    let calls = state.runtime.memory.recent_tool_calls(20).unwrap_or_default();
+    let mut html = String::new();
+    html.push_str("<ul class='tools'>");
+    if calls.is_empty() {
+        html.push_str("<li><em>no tool calls yet</em></li>");
+    }
+    for (name, args_json, _) in calls {
+        let short = if args_json.len() > 120 {
+            format!("{}…", &args_json[..120])
+        } else {
+            args_json
+        };
+        html.push_str(&format!(
+            "<li><code>{}</code> <span class='snip'>{}</span></li>",
+            html_escape::encode_text(&name),
+            html_escape::encode_text(&short),
+        ));
+    }
+    html.push_str("</ul>");
+    Html(html)
 }
 
 async fn conversations_list(State(state): State<AppState>) -> impl IntoResponse {

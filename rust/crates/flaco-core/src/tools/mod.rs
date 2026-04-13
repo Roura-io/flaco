@@ -22,6 +22,8 @@ pub mod memory_tool;
 pub mod shortcut;
 pub mod scaffold;
 pub mod research;
+pub mod slack_post;
+pub mod weather;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolSchema {

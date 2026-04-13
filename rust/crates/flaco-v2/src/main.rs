@@ -29,6 +29,8 @@ use flaco_core::tools::memory_tool::{ListMemories, Recall, Remember};
 use flaco_core::tools::research::Research;
 use flaco_core::tools::scaffold::Scaffold;
 use flaco_core::tools::shortcut::CreateShortcut;
+use flaco_core::tools::slack_post::SlackPost;
+use flaco_core::tools::weather::Weather;
 use flaco_core::tools::web::{WebFetch, WebSearch};
 use flaco_core::tools::ToolRegistry;
 use flaco_web::AppState;
@@ -74,6 +76,13 @@ enum Command {
         #[arg(long, default_value = "FLACO")]
         project_key: String,
     },
+    /// Import Claude Code auto-memory files as flaco memories.
+    /// Points at ~/.claude/projects/<slug>/memory/ and reads every *.md,
+    /// inserting each body as a fact under the default user.
+    SeedFromClaude {
+        #[arg(long, default_value = "~/.claude/projects/-Users-roura-io-Documents-pi-projects/memory")]
+        dir: String,
+    },
 }
 
 fn expand_home(p: &str) -> PathBuf {
@@ -96,7 +105,11 @@ fn build_runtime(db_path: &PathBuf, user: &str) -> Result<(Arc<Runtime>, Arc<Fea
     reg.register(Arc::new(FsWrite));
     reg.register(Arc::new(WebSearch::new()));
     reg.register(Arc::new(WebFetch::new()));
+    reg.register(Arc::new(Weather::new()));
     reg.register(Arc::new(Research::new(ollama.clone())));
+    if let Some(sp) = SlackPost::from_env() {
+        reg.register(Arc::new(sp));
+    }
     if let Some(jira) = JiraClient::from_env() {
         reg.register(Arc::new(JiraCreateIssue { client: jira.clone() }));
         reg.register(Arc::new(Scaffold { jira: Some(jira) }));
@@ -169,7 +182,49 @@ async fn main() -> Result<()> {
             println!("{}", r.output);
             Ok(())
         }
+        Command::SeedFromClaude { dir } => seed_from_claude(&dir, &runtime, &cli.user).await,
     }
+}
+
+async fn seed_from_claude(dir: &str, runtime: &Arc<Runtime>, user: &str) -> Result<()> {
+    let path = expand_home(dir);
+    if !path.exists() {
+        anyhow::bail!("seed dir not found: {}", path.display());
+    }
+    let mut count = 0usize;
+    for entry in std::fs::read_dir(&path)? {
+        let entry = entry?;
+        let p = entry.path();
+        if p.extension().and_then(|s| s.to_str()) != Some("md") { continue; }
+        if p.file_name().and_then(|s| s.to_str()) == Some("MEMORY.md") { continue; }
+        let content = std::fs::read_to_string(&p)?;
+        // Strip frontmatter + use everything else as the fact body.
+        let body = strip_frontmatter(&content).trim().to_string();
+        if body.is_empty() { continue; }
+        let kind = kind_from_filename(p.file_name().and_then(|s| s.to_str()).unwrap_or(""));
+        let id = runtime.memory.remember_fact(user, &kind, &body, None)?;
+        count += 1;
+        println!("seeded #{id} [{kind}] {}", p.file_name().unwrap().to_string_lossy());
+    }
+    println!("total: {count} memories seeded for user '{user}'");
+    Ok(())
+}
+
+fn strip_frontmatter(text: &str) -> &str {
+    if !text.starts_with("---") { return text; }
+    let rest = &text[3..];
+    if let Some(end) = rest.find("---") {
+        return &rest[end + 3..];
+    }
+    text
+}
+
+fn kind_from_filename(name: &str) -> String {
+    if name.starts_with("user_") { "user".into() }
+    else if name.starts_with("feedback_") { "preference".into() }
+    else if name.starts_with("project_") { "project".into() }
+    else if name.starts_with("reference_") { "reference".into() }
+    else { "fact".into() }
 }
 
 async fn serve_all(
