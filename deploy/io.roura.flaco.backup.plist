@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.roura.flaco.backup</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/roura.io.server/infra/flaco-v2</string>
+    <string>--config</string>
+    <string>/opt/homebrew/etc/flaco/config.toml</string>
+    <string>backup</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!-- Fire daily at 03:00 local time. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <!-- Run immediately after (re)install so we have a fresh snapshot. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/roura.io.server/Library/Logs/flaco/backup.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/roura.io.server/Library/Logs/flaco/backup.stderr.log</string>
+</dict>
+</plist>

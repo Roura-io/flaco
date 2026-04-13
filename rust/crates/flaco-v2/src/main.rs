@@ -94,6 +94,11 @@ enum Command {
     },
     /// Print a JSON snapshot of the runtime state (tools, model, counts).
     Status,
+    /// Snapshot the SQLite memory db via VACUUM INTO into cfg.backup.directory.
+    /// Prunes snapshots older than cfg.backup.retention_days. Verifies the new
+    /// snapshot opens cleanly before returning. Intended to be driven by the
+    /// io.roura.flaco.backup launchd agent but also safe to run by hand.
+    Backup,
 }
 
 fn expand_home(p: &str) -> PathBuf {
@@ -189,6 +194,13 @@ async fn main() -> Result<()> {
         std::fs::create_dir_all(parent).ok();
     }
 
+    // Lightweight subcommands that don't need a runtime/Memory handle —
+    // specifically, anything that would cause Rust and an external
+    // sqlite3 process to fight over the same db connection.
+    if matches!(cli.command, Some(Command::Backup)) {
+        return run_backup(&cfg);
+    }
+
     let (runtime, features) = build_runtime(&cfg, &cli.user)?;
     tracing::info!(
         "flaco-v2 up · db={} · source={:?}",
@@ -237,6 +249,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::ImportMemory { dir } => import_memory(&dir, &runtime, &cli.user).await,
+        Command::Backup => unreachable!("Backup handled before build_runtime"),
         Command::Status => {
             let tools = runtime.tools.names();
             let memories = runtime.memory.all_facts(&cli.user, 10_000)?.len();
@@ -348,6 +361,139 @@ async fn serve_slack(runtime: Arc<Runtime>, features: Arc<Features>) -> Result<(
             Ok(())
         }
     }
+}
+
+/// `flaco-v2 backup` implementation.
+///
+/// Shells out to the system `sqlite3` binary for `VACUUM INTO` because:
+///   1. It's always installed on macOS.
+///   2. `VACUUM INTO` is atomic, online, takes a shared lock that doesn't
+///      block the running flaco-v2 web process, and produces a compact copy.
+///   3. Keeping the backup logic out of the Rust binary means it still runs
+///      even if the main process is wedged or broken.
+///
+/// After writing the snapshot, we prune files older than
+/// `cfg.backup.retention_days` (0 disables pruning) and then re-open the
+/// new file with `SELECT count(*) FROM memories` to prove it's not corrupt.
+fn run_backup(cfg: &flaco_config::Config) -> Result<()> {
+    use std::process::Command as PC;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let db = &cfg.paths.db;
+    let dest_dir = &cfg.backup.directory;
+    if !db.exists() {
+        anyhow::bail!("db path does not exist: {}", db.display());
+    }
+    std::fs::create_dir_all(dest_dir)
+        .with_context(|| format!("mkdir -p {}", dest_dir.display()))?;
+
+    // flaco-YYYYMMDD-HHMMSS.db — sortable and human-readable.
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    let tm = time_fmt(now);
+    let snapshot = dest_dir.join(format!("flaco-{tm}.db"));
+
+    tracing::info!("backup: VACUUM INTO {}", snapshot.display());
+    // Retry the VACUUM INTO a handful of times if SQLite is momentarily busy.
+    // Happens most often during a WAL checkpoint right after a write burst.
+    let mut attempts = 0;
+    let out = loop {
+        attempts += 1;
+        // Make sure stale artefacts from a failed previous attempt are gone,
+        // otherwise sqlite3 refuses to overwrite the destination.
+        let _ = std::fs::remove_file(&snapshot);
+        let journal = snapshot.with_extension("db-journal");
+        let _ = std::fs::remove_file(&journal);
+
+        let result = PC::new("sqlite3")
+            .arg(db)
+            .arg(format!(
+                "PRAGMA busy_timeout=15000; VACUUM INTO '{}'",
+                snapshot.display()
+            ))
+            .output()
+            .context("run sqlite3 VACUUM INTO")?;
+        if result.status.success() {
+            break result;
+        }
+        let err = String::from_utf8_lossy(&result.stderr);
+        if attempts < 5 && (err.contains("database is locked") || err.contains("SQLITE_BUSY")) {
+            tracing::warn!("backup: sqlite3 busy (attempt {attempts}/5), retrying in 2s");
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            continue;
+        }
+        anyhow::bail!("sqlite3 VACUUM INTO failed after {attempts} attempts: {err}");
+    };
+    let _ = out;  // we only needed the status
+
+    // Verify the new snapshot opens cleanly.
+    let verify = PC::new("sqlite3")
+        .arg(&snapshot)
+        .arg("SELECT count(*) FROM memories")
+        .output()
+        .context("verify snapshot")?;
+    if !verify.status.success() {
+        anyhow::bail!(
+            "verify read from snapshot failed: {}",
+            String::from_utf8_lossy(&verify.stderr)
+        );
+    }
+    let row_count = String::from_utf8_lossy(&verify.stdout).trim().to_string();
+
+    // Prune files older than retention_days.
+    let mut pruned = 0usize;
+    if cfg.backup.retention_days > 0 {
+        let cutoff_secs = cfg.backup.retention_days as u64 * 86_400;
+        for entry in std::fs::read_dir(dest_dir)? {
+            let Ok(entry) = entry else { continue };
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|s| s.to_str()) else { continue };
+            if !name.starts_with("flaco-") || !name.ends_with(".db") {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata() {
+                if let Ok(modified) = meta.modified() {
+                    if let Ok(age) = SystemTime::now().duration_since(modified) {
+                        if age.as_secs() > cutoff_secs {
+                            let _ = std::fs::remove_file(&path);
+                            pruned += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    println!("backup ok: {} ({} memories, pruned {})", snapshot.display(), row_count, pruned);
+    Ok(())
+}
+
+/// Format a UNIX timestamp as `YYYYMMDD-HHMMSS` without pulling in `chrono`.
+/// Good enough for filenames; not timezone-aware (UTC).
+fn time_fmt(unix_secs: u64) -> String {
+    // Days since 1970-01-01, then Zeller-ish arithmetic. Shorter than it looks.
+    let secs = unix_secs % 60;
+    let mins = (unix_secs / 60) % 60;
+    let hours = (unix_secs / 3600) % 24;
+    let mut days = unix_secs / 86_400;
+    let mut year: u64 = 1970;
+    loop {
+        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        let days_in_year = if leap { 366 } else { 365 };
+        if days < days_in_year {
+            break;
+        }
+        days -= days_in_year;
+        year += 1;
+    }
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let month_lengths = [31u64, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 0usize;
+    while month < 12 && days >= month_lengths[month] {
+        days -= month_lengths[month];
+        month += 1;
+    }
+    let day = days + 1;
+    format!("{year:04}{:02}{day:02}-{hours:02}{mins:02}{secs:02}", month + 1)
 }
 
 /// Minimal .env loader — just enough so the binary can be run from any

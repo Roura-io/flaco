@@ -92,6 +92,14 @@ impl Memory {
             std::fs::create_dir_all(parent).ok();
         }
         let conn = Connection::open(&path)?;
+        // Enable WAL so concurrent readers (e.g. the backup subcommand's
+        // `sqlite3 VACUUM INTO`) don't block or get blocked by writers. WAL
+        // is a file-level setting that persists, but we set it on every open
+        // defensively so fresh installs and restored-from-backup dbs also
+        // get it. Ignore errors — :memory: doesn't support WAL, and an older
+        // SQLite build might also refuse.
+        let _ = conn.pragma_update(None, "journal_mode", "WAL");
+        let _ = conn.pragma_update(None, "synchronous", "NORMAL");
         conn.execute_batch(SCHEMA)?;
         Ok(Self { inner: Arc::new(Mutex::new(conn)), path })
     }
