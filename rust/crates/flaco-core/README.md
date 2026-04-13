@@ -19,7 +19,7 @@ flaco-core
 │   ├── memory_tool  remember / recall / list_memories
 │   ├── shortcut Siri Shortcut generator (XML plist)
 │   ├── scaffold Jira epic + git branch + starter scaffold
-│   └── research Perplexity-style search → fetch → cite
+│   └── research Web search → fetch top results → numbered citations
 ├── runtime      handle_turn tool-calling loop with event bus
 └── features     Direct entry points for slash commands
 ```

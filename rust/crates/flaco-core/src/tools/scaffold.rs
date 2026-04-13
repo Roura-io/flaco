@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn slugify_works() {
-        assert_eq!(slugify("Build a Perplexity clone for my homelab"), "build-a-perplexity-clone-for-my-homelab");
+        assert_eq!(slugify("Build an answer engine for my homelab"), "build-an-answer-engine-for-my-homelab");
         assert_eq!(slugify("   !!!  "), "scaffold");
     }
 

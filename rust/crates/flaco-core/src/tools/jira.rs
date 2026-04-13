@@ -2,10 +2,20 @@
 
 use async_trait::async_trait;
 use base64::Engine as _;
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::error::{Error, Result};
 use super::{Tool, ToolResult, ToolSchema};
+
+#[derive(Clone, Debug, Serialize)]
+pub struct JiraIssueSummary {
+    pub key: String,
+    pub summary: String,
+    pub status: String,
+    pub priority: Option<String>,
+    pub kind: String,
+}
 
 #[derive(Clone, Debug)]
 pub struct JiraClient {
@@ -62,6 +72,69 @@ impl JiraClient {
             return Err(Error::Other(format!("jira {code}: {text}")));
         }
         Ok(resp.json().await?)
+    }
+
+    /// Search with JQL. Returns the parsed JSON response; callers pluck the
+    /// `issues` array. Limits to a handful of fields to keep the payload tiny.
+    pub async fn search(&self, jql: &str, max_results: u32) -> Result<Value> {
+        let url = format!("{}/rest/api/3/search", self.base);
+        let body = serde_json::json!({
+            "jql": jql,
+            "maxResults": max_results,
+            "fields": ["summary", "status", "priority", "issuetype", "updated"],
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", self.auth())
+            .header("Accept", "application/json")
+            .json(&body)
+            .send()
+            .await?;
+        if !resp.status().is_success() {
+            let code = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(Error::Other(format!("jira search {code}: {text}")));
+        }
+        Ok(resp.json().await?)
+    }
+
+    /// Pretty-print open issues assigned to `currentUser()` as one per line.
+    /// Falls back to a friendly string when the JQL finds nothing.
+    pub async fn my_open_issues(&self, max: u32) -> Result<Vec<JiraIssueSummary>> {
+        let jql = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC";
+        let resp = self.search(jql, max).await?;
+        let mut out = Vec::new();
+        if let Some(arr) = resp.get("issues").and_then(Value::as_array) {
+            for issue in arr {
+                let key = issue.get("key").and_then(Value::as_str).unwrap_or("?").to_string();
+                let fields = issue.get("fields");
+                let summary = fields
+                    .and_then(|f| f.get("summary"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let status = fields
+                    .and_then(|f| f.get("status"))
+                    .and_then(|s| s.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("?")
+                    .to_string();
+                let priority = fields
+                    .and_then(|f| f.get("priority"))
+                    .and_then(|p| p.get("name"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let kind = fields
+                    .and_then(|f| f.get("issuetype"))
+                    .and_then(|t| t.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("Task")
+                    .to_string();
+                out.push(JiraIssueSummary { key, summary, status, priority, kind });
+            }
+        }
+        Ok(out)
     }
 
     pub async fn list_projects(&self) -> Result<Value> {

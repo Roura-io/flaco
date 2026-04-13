@@ -16,7 +16,7 @@ ONE memory, and ONE typed tool registry. Ship four killer features:
 3. **Jira → code scaffold** — `/scaffold <idea>` → Jira epic+stories+subtasks,
    local git branch, starter folder, first commit. Idea → ready-to-code branch
    in under a minute.
-4. **Perplexity-style research** — `/research <topic>` (or free question in
+4. **Web research with citations** — `/research <topic>` (or free question in
    web UI) → DuckDuckGo → fetch top results → Ollama summarize → numbered
    citations linked to sources. Works in all three surfaces.
 
@@ -36,7 +36,7 @@ ONE memory, and ONE typed tool registry. Ship four killer features:
 ```
 rust/crates/
   flaco-core/     # runtime loop, session, memory, tool registry, ollama client
-  flaco-web/      # Axum + HTMX web server (Perplexity-style UI)
+  flaco-web/      # Axum + HTMX web server (unified UI)
   flaco-tui/      # ratatui-based shiny TUI (optional if time)
   flaco-slack/    # Socket Mode adapter over flaco-core (thin)
   flaco-v2/       # binary wiring all surfaces

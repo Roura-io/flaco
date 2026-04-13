@@ -10,9 +10,9 @@ commands.
 
 ## 1. Unified memory across surfaces
 
-The v2 db was pre-seeded at deploy time from the Claude Code auto-memory
-folder, so flaco already knows who Chris is, what the RouraIO homelab
-looks like, and Chris's feedback preferences.
+The v2 db was pre-seeded at deploy time from markdown fact files on disk,
+so flaco already knows who Chris is, what the RouraIO homelab looks like,
+and Chris's feedback preferences.
 
 ### Try it
 
@@ -45,7 +45,7 @@ via `/memories`. The brain is the same on every surface.
 
 ---
 
-## 2. Perplexity-style research with citations
+## 2. Web research with citations
 
 ### Try it
 
@@ -172,11 +172,11 @@ ssh mac-server '
   echo $! > ~/infra/flaco-v2-web.pid
 '
 
-# Re-seed memory from Claude Code's auto-memory
+# Import markdown memory files as flaco facts
 ssh mac-server '
   source ~/infra/flaco-v2.env
   FLACO_MODEL=qwen3:32b-q8_0 ~/infra/flaco-v2 \
-    --db ~/infra/flaco.db seed-from-claude --dir ~/infra/claude-memory-seed
+    --db ~/infra/flaco.db import-memory --dir ~/infra/flaco-memory-seed
 '
 ```
 

@@ -53,6 +53,7 @@ pub async fn run(runtime: Arc<Runtime>, features: Arc<Features>) -> Result<()> {
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
+    terminal.hide_cursor()?;
 
     let result = run_loop(&mut terminal, runtime, features).await;
 
@@ -78,8 +79,13 @@ async fn run_loop<B: Backend>(
     let mut scroll: u16 = 0;
     let user_id = "chris".to_string();
 
+    let model = runtime.ollama.model().to_string();
+    let fact_count = runtime.memory.all_facts(&user_id, 10_000).map(|v| v.len()).unwrap_or(0);
+    let mut tick: u64 = 0;
     loop {
-        terminal.draw(|f| ui(f, &log, &input, scroll))?;
+        tick = tick.wrapping_add(1);
+        let cursor_on = (tick / 4) % 2 == 0;
+        terminal.draw(|f| ui(f, &log, &input, scroll, &model, fact_count, cursor_on))?;
 
         if event::poll(Duration::from_millis(120))? {
             if let CtEvent::Key(key) = event::read()? {
@@ -146,6 +152,23 @@ async fn handle_command(
         }
         return HandleResult::Continue;
     }
+    if text == "/brief" || text == "/morning" {
+        match features.morning_brief(user_id).await {
+            Ok(b) => log.push(LogEntry::Assistant(b.markdown)),
+            Err(e) => log.push(LogEntry::Error(format!("brief: {e}"))),
+        }
+        return HandleResult::Continue;
+    }
+    if text == "/clear" || text == "/reset" || text == "/new" {
+        log.clear();
+        log.push(LogEntry::System("conversation reset. fresh brain, same memory.".into()));
+        return HandleResult::Continue;
+    }
+    if text == "/help" {
+        let help = "commands: /brief /research <topic> /shortcut name: desc /scaffold <idea> /memories /remember <fact> /clear /q";
+        log.push(LogEntry::System(help.into()));
+        return HandleResult::Continue;
+    }
     if text == "/memories" {
         let mems = runtime.memory.all_facts(user_id, 50).unwrap_or_default();
         let text = if mems.is_empty() {
@@ -177,7 +200,15 @@ async fn handle_command(
     HandleResult::Continue
 }
 
-fn ui(f: &mut Frame, log: &[LogEntry], input: &str, scroll: u16) {
+fn ui(
+    f: &mut Frame,
+    log: &[LogEntry],
+    input: &str,
+    scroll: u16,
+    model: &str,
+    fact_count: usize,
+    cursor_on: bool,
+) {
     let size = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -188,24 +219,61 @@ fn ui(f: &mut Frame, log: &[LogEntry], input: &str, scroll: u16) {
         ])
         .split(size);
 
-    render_header(f, chunks[0]);
+    render_header(f, chunks[0], model, fact_count);
     render_log(f, chunks[1], log, scroll);
-    render_input(f, chunks[2], input);
+    render_input(f, chunks[2], input, cursor_on);
 }
 
-fn render_header(f: &mut Frame<'_>, area: Rect) {
-    let line = Line::from(vec![
-        Span::styled("flaco", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-        Span::raw(" "),
-        Span::styled("v2", Style::default().fg(Color::Cyan)),
-        Span::raw("  "),
+fn render_header(f: &mut Frame<'_>, area: Rect, model: &str, fact_count: usize) {
+    // A two-half header: the brand on the left, runtime chips on the right.
+    let halves = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(20), Constraint::Length(46)])
+        .split(area);
+
+    let brand = Line::from(vec![
         Span::styled(
-            "unified brain · one memory · three surfaces",
+            "  flacoAi ",
+            Style::default()
+                .fg(Color::Rgb(180, 155, 255))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "· ",
             Style::default().fg(Color::DarkGray),
         ),
+        Span::styled(
+            "powered by ",
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::styled(
+            "Roura.io",
+            Style::default()
+                .fg(Color::Rgb(62, 207, 142))
+                .add_modifier(Modifier::BOLD),
+        ),
     ]);
-    let p = Paragraph::new(line).block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
-    f.render_widget(p, area);
+    let left = Paragraph::new(brand).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Rgb(44, 51, 66))),
+    );
+    f.render_widget(left, halves[0]);
+
+    let right_line = Line::from(vec![
+        Span::styled(" ● ", Style::default().fg(Color::Rgb(62, 207, 142)).add_modifier(Modifier::BOLD)),
+        Span::styled("online ", Style::default().fg(Color::Gray)),
+        Span::styled("· ", Style::default().fg(Color::DarkGray)),
+        Span::styled(model, Style::default().fg(Color::Rgb(180, 155, 255)).add_modifier(Modifier::BOLD)),
+        Span::styled("  · ", Style::default().fg(Color::DarkGray)),
+        Span::styled(format!("{fact_count} memories"), Style::default().fg(Color::Gray)),
+    ]);
+    let right = Paragraph::new(right_line).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Rgb(44, 51, 66))),
+    );
+    f.render_widget(right, halves[1]);
 }
 
 fn render_log(f: &mut Frame<'_>, area: Rect, log: &[LogEntry], _scroll: u16) {
@@ -271,16 +339,34 @@ fn render_log(f: &mut Frame<'_>, area: Rect, log: &[LogEntry], _scroll: u16) {
     f.render_widget(p, area);
 }
 
-fn render_input(f: &mut Frame<'_>, area: Rect, input: &str) {
+fn render_input(f: &mut Frame<'_>, area: Rect, input: &str, cursor_on: bool) {
+    let caret = if cursor_on { "▏" } else { " " };
     let p = Paragraph::new(Line::from(vec![
-        Span::styled("❯ ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-        Span::raw(input),
+        Span::styled(
+            "❯ ",
+            Style::default()
+                .fg(Color::Rgb(180, 155, 255))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(input.to_string()),
+        Span::styled(
+            caret,
+            Style::default()
+                .fg(Color::Rgb(180, 155, 255))
+                .add_modifier(Modifier::BOLD),
+        ),
     ]))
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .title(" input · /q quit · /research · /shortcut · /scaffold · /memories · /remember ")
-            .border_style(Style::default().fg(Color::DarkGray)),
+            .title(Line::from(vec![
+                Span::styled(" input ", Style::default().fg(Color::Rgb(180, 155, 255)).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "· /brief · /research · /shortcut · /scaffold · /memories · /clear · /q ",
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]))
+            .border_style(Style::default().fg(Color::Rgb(44, 51, 66))),
     );
     f.render_widget(p, area);
 }

@@ -18,9 +18,9 @@ Four killer features ship in the box:
    `.shortcut` plist to `~/Downloads/flaco-shortcuts/` ready to AirDrop.
 3. **Jira → code scaffold** — `/scaffold <idea>` creates a Jira epic plus
    stories, local git branch, starter folder, and first commit in one go.
-4. **Perplexity-style research with citations** — `/research <topic>`
-   does DuckDuckGo search → fetch top results → Ollama summarize → numbered
-   citations. Works in every surface.
+4. **Web research with citations** — `/research <topic>` does web search →
+   fetch top results → Ollama summarize → numbered citations. Works in
+   every surface.
 
 Local AI only (Ollama). v1 `flacoai-server` keeps running untouched.
 

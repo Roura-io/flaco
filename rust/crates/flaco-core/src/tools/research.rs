@@ -1,4 +1,4 @@
-//! Perplexity-style research tool.
+//! Web research with numbered citations — flacoAi's answer engine.
 //!
 //! Flow:
 //!   1. Web search (DDG) for the topic → top N hits
@@ -118,7 +118,7 @@ impl Tool for Research {
     fn schema(&self) -> ToolSchema {
         ToolSchema {
             name: "research".into(),
-            description: "Perplexity-style research: web search → fetch → summarize with numbered citations.".into(),
+            description: "Web research: web search → fetch top results → summarize with numbered citations.".into(),
             parameters: serde_json::json!({
                 "type":"object",
                 "properties":{

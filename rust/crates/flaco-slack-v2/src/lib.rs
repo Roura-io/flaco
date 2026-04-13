@@ -189,6 +189,49 @@ impl SlackAdapter {
         let user = payload.get("user_id").and_then(Value::as_str).unwrap_or("unknown").to_string();
 
         let response_text = match command {
+            "/reset" | "/clear" | "/new" | "/forget" => {
+                // Start a brand-new session for this user on Slack. We do this
+                // by calling Session::start directly, which inserts a fresh
+                // conversation row into memory — the next turn will resume it.
+                use flaco_core::persona::PersonaRegistry;
+                use flaco_core::session::Session;
+                let personas = PersonaRegistry::defaults();
+                let _ = Session::start(
+                    self.runtime.memory.clone(),
+                    &personas,
+                    "slack",
+                    &user,
+                    None,
+                );
+                "Conversation reset. Starting fresh — what's up?".to_string()
+            }
+            "/help" => {
+                "*flacoAi — powered by Roura.io*\n\
+                 `/reset` or `/clear` — wipe this conversation and start fresh\n\
+                 `/brief` — your morning brief (memory + open Jira)\n\
+                 `/research <topic>` — web research with citations\n\
+                 `/shortcut name: description` — generate a real Siri Shortcut\n\
+                 `/scaffold <idea>` — Jira epic + stories + local git branch\n\
+                 `/memories` — what I remember about you\n\
+                 `/status` — model + memory counts\n\
+                 Anything else — just talk to me normally."
+                    .to_string()
+            }
+            "/status" => {
+                let tools = self.runtime.tools.names();
+                let mem_count = self.runtime.memory.all_facts(&user, 10_000).map(|v| v.len()).unwrap_or(0);
+                format!(
+                    "flacoAi v2 is online.\nModel: `{}`\nMemories: {mem_count}\nTools: {}",
+                    self.runtime.ollama.model(),
+                    tools.len()
+                )
+            }
+            "/brief" => {
+                match self.features.morning_brief(&user).await {
+                    Ok(b) => b.markdown,
+                    Err(e) => format!("brief error: {e}"),
+                }
+            }
             "/research" => {
                 match self.features.research(&text).await {
                     Ok(r) => r.to_markdown(),

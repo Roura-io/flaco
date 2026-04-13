@@ -1,4 +1,4 @@
-//! flaco-web — Perplexity-style web UI for flacoAi v2.
+//! flaco-web — unified web UI for flacoAi v2, powered by Roura.io.
 //!
 //! Single-file Axum app with HTMX on the front end. Every interaction is a
 //! form POST that returns an HTML fragment, keeping the JS surface to zero.
@@ -6,9 +6,10 @@
 //!
 //!   GET  /                — full page
 //!   POST /chat            — run a turn through Runtime, return HTML fragment
-//!   POST /research        — Perplexity-style research, returns HTML
+//!   POST /research        — web research with numbered citations, returns HTML
 //!   POST /shortcut        — Siri Shortcut generator
 //!   POST /scaffold        — Jira + git scaffold
+//!   POST /brief           — morning brief (Jira + memory + Ollama)
 //!   GET  /memories        — list memories
 //!   POST /memories        — save a memory
 //!   GET  /conversations   — list recent conversations
@@ -38,6 +39,7 @@ pub fn router(state: AppState) -> Router {
         .route("/research", post(research))
         .route("/shortcut", post(shortcut))
         .route("/scaffold", post(scaffold))
+        .route("/brief", post(brief))
         .route("/memories", get(memories_list).post(memories_save))
         .route("/conversations", get(conversations_list))
         .route("/conversations/{id}", get(conversation_detail))
@@ -149,6 +151,34 @@ async fn scaffold(State(state): State<AppState>, Form(form): Form<ScaffoldForm>)
     }
 }
 
+async fn brief(State(state): State<AppState>) -> impl IntoResponse {
+    match state.features.morning_brief(&state.default_user).await {
+        Ok(b) => {
+            let mut html = String::new();
+            html.push_str("<div class='msg flaco'><b>flaco • morning brief</b>");
+            html.push_str(&format!("<div class='md'>{}</div>", markdown_to_html(&b.markdown)));
+            if !b.issues.is_empty() {
+                html.push_str("<ul class='cites'>");
+                for i in &b.issues {
+                    let pri = i.priority.as_deref().unwrap_or("—");
+                    html.push_str(&format!(
+                        "<li><b>{}</b> · {} · {} · <em>{}</em> — {}</li>",
+                        html_escape::encode_text(&i.key),
+                        html_escape::encode_text(&i.kind),
+                        html_escape::encode_text(&i.status),
+                        html_escape::encode_text(pri),
+                        html_escape::encode_text(&i.summary),
+                    ));
+                }
+                html.push_str("</ul>");
+            }
+            html.push_str("</div>");
+            Html(html)
+        }
+        Err(e) => Html(format!("<div class='msg err'>brief failed: {e}</div>")),
+    }
+}
+
 async fn memories_list(State(state): State<AppState>) -> impl IntoResponse {
     let mems = state.runtime.memory.all_facts(&state.default_user, 200).unwrap_or_default();
     let mut html = String::new();
@@ -191,39 +221,111 @@ async fn new_conversation(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 async fn tool_log(State(state): State<AppState>) -> impl IntoResponse {
-    let calls = state.runtime.memory.recent_tool_calls(20).unwrap_or_default();
+    // Pull the last 200 calls and aggregate by tool name: count, last-used,
+    // and a short preview of the most recent args. The sidebar shows a
+    // one-liner per tool, clickable to expand to recent invocations.
+    let calls = state.runtime.memory.recent_tool_calls(200).unwrap_or_default();
     let mut html = String::new();
-    html.push_str("<ul class='tools'>");
     if calls.is_empty() {
-        html.push_str("<li><em>no tool calls yet</em></li>");
+        html.push_str("<div class='empty'>no tool calls yet</div>");
+        return Html(html);
     }
-    for (name, args_json, _) in calls {
-        let short = if args_json.len() > 120 {
-            format!("{}…", &args_json[..120])
-        } else {
-            args_json
-        };
+
+    use std::collections::BTreeMap;
+    struct Agg { count: usize, last_at: i64, recent_args: Vec<(i64, String)> }
+    let mut by_tool: BTreeMap<String, Agg> = BTreeMap::new();
+    for (name, args_json, ts) in &calls {
+        let e = by_tool.entry(name.clone()).or_insert(Agg { count: 0, last_at: 0, recent_args: Vec::new() });
+        e.count += 1;
+        if *ts > e.last_at { e.last_at = *ts; }
+        if e.recent_args.len() < 5 {
+            e.recent_args.push((*ts, args_json.clone()));
+        }
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let mut rows: Vec<(String, Agg)> = by_tool.into_iter().collect();
+    rows.sort_by(|a, b| b.1.last_at.cmp(&a.1.last_at));
+
+    html.push_str("<ul class='tools'>");
+    for (name, agg) in rows {
+        let desc = tool_blurb(&name);
+        let ago = humanize_ago(now - agg.last_at);
         html.push_str(&format!(
-            "<li><code>{}</code> <span class='snip'>{}</span></li>",
+            "<li><details><summary><div class='tl-row'>\
+                <code>{}</code>\
+                <span class='tl-count'>×{}</span>\
+            </div>\
+            <div class='tl-sub'>{} · {}</div></summary>",
             html_escape::encode_text(&name),
-            html_escape::encode_text(&short),
+            agg.count,
+            html_escape::encode_text(desc),
+            html_escape::encode_text(&ago),
         ));
+        html.push_str("<div class='tl-recent'>");
+        for (_ts, a) in &agg.recent_args {
+            let preview: String = a.chars().take(180).collect();
+            html.push_str(&format!(
+                "<pre class='tl-args'>{}</pre>",
+                html_escape::encode_text(&preview),
+            ));
+        }
+        html.push_str("</div></details></li>");
     }
     html.push_str("</ul>");
     Html(html)
 }
 
+/// One-line description per tool, shown under the name in the sidebar.
+fn tool_blurb(name: &str) -> &'static str {
+    match name {
+        "bash" => "run a shell command",
+        "fs_read" => "read a local file",
+        "fs_write" => "write a local file",
+        "web_search" => "DuckDuckGo search",
+        "web_fetch" => "fetch a URL as readable text",
+        "weather" => "wttr.in weather snapshot",
+        "research" => "search + fetch + cite",
+        "jira_create_issue" => "create a Jira issue",
+        "github_create_pr" => "create a GitHub PR",
+        "scaffold_idea" => "scaffold an idea into code",
+        "create_shortcut" => "write a Siri Shortcut file",
+        "slack_post" => "post a message to Slack",
+        "remember" => "save a fact to memory",
+        "recall" => "search unified memory",
+        "list_memories" => "list what I remember",
+        _ => "tool",
+    }
+}
+
+fn humanize_ago(secs: i64) -> String {
+    if secs < 5 { "just now".into() }
+    else if secs < 60 { format!("{secs}s ago") }
+    else if secs < 3600 { format!("{}m ago", secs / 60) }
+    else if secs < 86_400 { format!("{}h ago", secs / 3600) }
+    else { format!("{}d ago", secs / 86_400) }
+}
+
 async fn conversations_list(State(state): State<AppState>) -> impl IntoResponse {
     let convs = state.runtime.memory.list_conversations(20).unwrap_or_default();
     let mut html = String::new();
+    if convs.is_empty() {
+        html.push_str("<div class='empty'>no conversations yet</div>");
+        return Html(html);
+    }
     html.push_str("<ul class='convs'>");
     for c in convs {
+        let title = c.title.clone().unwrap_or_else(|| format!("conversation {}", &c.id[..8]));
         html.push_str(&format!(
-            "<li><a href='#' hx-get='/conversations/{}' hx-target='#chat-log' hx-swap='innerHTML'><b>{}</b> · {} · {}</a></li>",
+            "<li><a href='#chat' hx-get='/conversations/{}' hx-target='#chat-log' hx-swap='innerHTML' \
+             onclick=\"document.querySelector('nav button[data-view=chat]').click()\">\
+             <b>{}</b><span class='meta'>{} · {}</span></a></li>",
             html_escape::encode_text(&c.id),
+            html_escape::encode_text(&title),
             html_escape::encode_text(&c.surface),
             html_escape::encode_text(&c.user_id),
-            html_escape::encode_text(c.title.as_deref().unwrap_or(&c.id[..8])),
         ));
     }
     html.push_str("</ul>");
@@ -255,9 +357,11 @@ async fn conversation_detail(
             }
             flaco_core::memory::Role::Tool => {
                 let name = m.tool_name.unwrap_or_else(|| "tool".into());
+                let preview: String = m.content.chars().take(80).collect();
                 html.push_str(&format!(
-                    "<div class='msg flaco'><b>tool · {}</b><pre>{}</pre></div>",
+                    "<div class='msg tool'><details><summary><b>⚙ {}</b> <span class='tool-preview'>{}</span></summary><pre class='tool-out'>{}</pre></details></div>",
                     html_escape::encode_text(&name),
+                    html_escape::encode_text(&preview),
                     html_escape::encode_text(&m.content),
                 ));
             }
@@ -267,107 +371,19 @@ async fn conversation_detail(
     Html(html)
 }
 
-/// Laughably small Markdown → HTML — enough to render bold, italics, code,
-/// headings, paragraphs, and links. Good enough for LLM responses in the
-/// hackathon demo; we can swap in pulldown-cmark later.
+/// Render Markdown to HTML via pulldown-cmark with tables, strikethrough,
+/// and fenced code blocks. Good enough for LLM output with headings, lists,
+/// tables, and inline formatting.
 pub fn markdown_to_html(md: &str) -> String {
-    let mut html = String::new();
-    let mut in_code = false;
-    for raw_line in md.lines() {
-        let line = raw_line.trim_end();
-        if line.starts_with("```") {
-            if in_code {
-                html.push_str("</code></pre>");
-                in_code = false;
-            } else {
-                html.push_str("<pre><code>");
-                in_code = true;
-            }
-            continue;
-        }
-        if in_code {
-            html.push_str(&html_escape::encode_text(line));
-            html.push('\n');
-            continue;
-        }
-        if line.is_empty() { html.push_str("<br>"); continue; }
-        if let Some(rest) = line.strip_prefix("### ") {
-            html.push_str(&format!("<h3>{}</h3>", html_escape::encode_text(rest)));
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("## ") {
-            html.push_str(&format!("<h2>{}</h2>", html_escape::encode_text(rest)));
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("# ") {
-            html.push_str(&format!("<h1>{}</h1>", html_escape::encode_text(rest)));
-            continue;
-        }
-        html.push_str("<p>");
-        html.push_str(&inline_md(line));
-        html.push_str("</p>");
-    }
-    if in_code { html.push_str("</code></pre>"); }
-    html
-}
-
-fn inline_md(s: &str) -> String {
-    let mut out = String::new();
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '*' && chars.peek() == Some(&'*') {
-            chars.next();
-            let mut inner = String::new();
-            while let Some(&nc) = chars.peek() {
-                if nc == '*' { chars.next(); if chars.peek() == Some(&'*') { chars.next(); break; } inner.push('*'); }
-                else { inner.push(nc); chars.next(); }
-            }
-            out.push_str("<strong>");
-            out.push_str(&html_escape::encode_text(&inner));
-            out.push_str("</strong>");
-            continue;
-        }
-        if c == '`' {
-            let mut inner = String::new();
-            while let Some(&nc) = chars.peek() {
-                if nc == '`' { chars.next(); break; }
-                inner.push(nc); chars.next();
-            }
-            out.push_str("<code>");
-            out.push_str(&html_escape::encode_text(&inner));
-            out.push_str("</code>");
-            continue;
-        }
-        if c == '[' {
-            // [text](url)
-            let mut text = String::new();
-            while let Some(&nc) = chars.peek() {
-                if nc == ']' { chars.next(); break; }
-                text.push(nc); chars.next();
-            }
-            if chars.peek() == Some(&'(') {
-                chars.next();
-                let mut url = String::new();
-                while let Some(&nc) = chars.peek() {
-                    if nc == ')' { chars.next(); break; }
-                    url.push(nc); chars.next();
-                }
-                out.push_str(&format!(
-                    "<a href='{}' target='_blank' rel='noopener'>{}</a>",
-                    html_escape::encode_double_quoted_attribute(&url),
-                    html_escape::encode_text(&text)
-                ));
-                continue;
-            }
-            out.push('[');
-            out.push_str(&html_escape::encode_text(&text));
-            out.push(']');
-            continue;
-        }
-        let mut buf = [0u8; 4];
-        let s = c.encode_utf8(&mut buf);
-        out.push_str(&html_escape::encode_text(s));
-    }
+    use pulldown_cmark::{html, Options, Parser};
+    let mut opts = Options::empty();
+    opts.insert(Options::ENABLE_STRIKETHROUGH);
+    opts.insert(Options::ENABLE_TABLES);
+    opts.insert(Options::ENABLE_TASKLISTS);
+    opts.insert(Options::ENABLE_FOOTNOTES);
+    let parser = Parser::new_ext(md, opts);
+    let mut out = String::with_capacity(md.len() * 2);
+    html::push_html(&mut out, parser);
     out
 }
 
@@ -383,13 +399,20 @@ mod tests {
         assert!(h.contains("<h1>Title</h1>"));
         assert!(h.contains("<strong>world</strong>"));
         assert!(h.contains("<code>code</code>"));
-        assert!(h.contains("href='https://example.com'"));
+        assert!(h.contains("href=\"https://example.com\""));
     }
 
     #[test]
     fn md_code_block() {
-        let h = markdown_to_html("```\nlet x = 1;\n```");
-        assert!(h.contains("<pre><code>"));
-        assert!(h.contains("let x = 1;"));
+        let h = markdown_to_html("```rust\nlet x = 1;\n```");
+        assert!(h.contains("<pre>"));
+        assert!(h.contains("let x = 1"));
+    }
+
+    #[test]
+    fn md_list_and_headings() {
+        let h = markdown_to_html("## Focus today\n\n- first\n- second\n");
+        assert!(h.contains("<h2>Focus today</h2>"));
+        assert!(h.contains("<li>first</li>"));
     }
 }

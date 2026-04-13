@@ -76,11 +76,13 @@ enum Command {
         #[arg(long, default_value = "FLACO")]
         project_key: String,
     },
-    /// Import Claude Code auto-memory files as flaco memories.
-    /// Points at ~/.claude/projects/<slug>/memory/ and reads every *.md,
-    /// inserting each body as a fact under the default user.
-    SeedFromClaude {
-        #[arg(long, default_value = "~/.claude/projects/-Users-roura-io-Documents-pi-projects/memory")]
+    /// Generate a Morning Brief from memory + open Jira tickets.
+    Brief,
+    /// Import markdown memory files as flaco facts.
+    /// Points at any directory of *.md files (one fact per file) and inserts
+    /// each body as a memory under the default user.
+    ImportMemory {
+        #[arg(long, default_value = "~/infra/flaco-memory-seed")]
         dir: String,
     },
     /// Print a JSON snapshot of the runtime state (tools, model, counts).
@@ -184,7 +186,20 @@ async fn main() -> Result<()> {
             println!("{}", r.output);
             Ok(())
         }
-        Command::SeedFromClaude { dir } => seed_from_claude(&dir, &runtime, &cli.user).await,
+        Command::Brief => {
+            let b = features.morning_brief(&cli.user).await?;
+            println!("{}", b.markdown);
+            if !b.issues.is_empty() {
+                println!();
+                println!("Open tickets ({}):", b.issues.len());
+                for i in &b.issues {
+                    let pri = i.priority.as_deref().unwrap_or("—");
+                    println!("  {} [{}] ({}, {}) — {}", i.key, i.kind, i.status, pri, i.summary);
+                }
+            }
+            Ok(())
+        }
+        Command::ImportMemory { dir } => import_memory(&dir, &runtime, &cli.user).await,
         Command::Status => {
             let tools = runtime.tools.names();
             let memories = runtime.memory.all_facts(&cli.user, 10_000)?.len();
@@ -204,7 +219,7 @@ async fn main() -> Result<()> {
     }
 }
 
-async fn seed_from_claude(dir: &str, runtime: &Arc<Runtime>, user: &str) -> Result<()> {
+async fn import_memory(dir: &str, runtime: &Arc<Runtime>, user: &str) -> Result<()> {
     let path = expand_home(dir);
     if !path.exists() {
         anyhow::bail!("seed dir not found: {}", path.display());

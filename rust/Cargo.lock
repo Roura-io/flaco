@@ -694,7 +694,7 @@ dependencies = [
  "integrations",
  "model-intel",
  "plugins",
- "pulldown-cmark",
+ "pulldown-cmark 0.13.3",
  "runtime",
  "rustyline",
  "serde_json",
@@ -780,6 +780,7 @@ dependencies = [
  "flaco-core",
  "futures-util",
  "html-escape",
+ "pulldown-cmark 0.12.2",
  "serde",
  "serde_json",
  "tokio",
@@ -1900,6 +1901,18 @@ dependencies = [
 
 [[package]]
 name = "pulldown-cmark"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f86ba2052aebccc42cbbb3ed234b8b13ce76f75c3551a303cb2bcffcff12bb14"
+dependencies = [
+ "bitflags 2.11.0",
+ "memchr",
+ "pulldown-cmark-escape",
+ "unicase",
+]
+
+[[package]]
+name = "pulldown-cmark"
 version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c3a14896dfa883796f1cb410461aef38810ea05f2b2c33c5aded3649095fdad"
@@ -2712,7 +2725,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
