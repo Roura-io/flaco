@@ -75,7 +75,7 @@ fn parse_actions(english: &str) -> Vec<ShortcutAction> {
 fn first_url(s: &str) -> Option<String> {
     for piece in s.split_whitespace() {
         if piece.starts_with("http://") || piece.starts_with("https://") {
-            return Some(piece.trim_end_matches(|c: char| matches!(c, ',' | '.' | ')' | ']')).to_string());
+            return Some(piece.trim_end_matches([',', '.', ')', ']']).to_string());
         }
     }
     None
@@ -256,6 +256,6 @@ mod tests {
     #[test]
     fn parses_url_action() {
         let acts = parse_actions("open https://news.ycombinator.com please");
-        assert!(matches!(acts.iter().find(|a| matches!(a, ShortcutAction::OpenUrl{..})), Some(_)));
+        assert!(acts.iter().find(|a| matches!(a, ShortcutAction::OpenUrl{..})).is_some());
     }
 }

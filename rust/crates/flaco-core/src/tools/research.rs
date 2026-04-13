@@ -31,7 +31,7 @@ impl Research {
     }
 
     pub async fn run(&self, topic: &str, depth: usize) -> Result<ResearchResult> {
-        let hits = self.search.search(topic, depth.max(3).min(8)).await?;
+        let hits = self.search.search(topic, depth.clamp(3, 8)).await?;
         if hits.is_empty() {
             return Ok(ResearchResult {
                 answer: format!("No search results for '{topic}'."),

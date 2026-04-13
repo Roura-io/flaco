@@ -84,7 +84,7 @@ async fn run_loop<B: Backend>(
     let mut tick: u64 = 0;
     loop {
         tick = tick.wrapping_add(1);
-        let cursor_on = (tick / 4) % 2 == 0;
+        let cursor_on = (tick / 4).is_multiple_of(2);
         terminal.draw(|f| ui(f, &log, &input, scroll, &model, fact_count, cursor_on))?;
 
         if event::poll(Duration::from_millis(120))? {
