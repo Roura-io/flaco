@@ -41,6 +41,7 @@ pub fn router(state: AppState) -> Router {
         .route("/memories", get(memories_list).post(memories_save))
         .route("/conversations", get(conversations_list))
         .route("/tool-log", get(tool_log))
+        .route("/new", post(new_conversation))
         .route("/health", get(health))
         .with_state(state)
 }
@@ -156,6 +157,20 @@ async fn memories_save(State(state): State<AppState>, Form(form): Form<MemForm>)
     let kind = form.kind.as_deref().unwrap_or("fact");
     let _ = state.features.remember(&state.default_user, &form.content, kind);
     memories_list(State(state)).await.into_response()
+}
+
+async fn new_conversation(State(state): State<AppState>) -> impl IntoResponse {
+    // Force a brand new conversation by inserting a blank separator message
+    // with a fresh conversation id.
+    let personas = flaco_core::persona::PersonaRegistry::defaults();
+    let _ = flaco_core::session::Session::start(
+        state.runtime.memory.clone(),
+        &personas,
+        "web",
+        &state.default_user,
+        None,
+    );
+    Html("<div class='msg flaco'><b>flaco</b><p>started a fresh conversation.</p></div>".to_string())
 }
 
 async fn tool_log(State(state): State<AppState>) -> impl IntoResponse {
@@ -290,7 +305,8 @@ fn inline_md(s: &str) -> String {
                 continue;
             }
             out.push('[');
-            out.push_str(&text);
+            out.push_str(&html_escape::encode_text(&text));
+            out.push(']');
             continue;
         }
         let mut buf = [0u8; 4];

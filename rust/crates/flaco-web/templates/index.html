@@ -103,6 +103,7 @@
       <form id="chat-form" class="row" hx-post="/chat" hx-target="#chat-log" hx-swap="beforeend" hx-on::after-request="this.reset()">
         <input id="chat-input" type="text" name="message" placeholder="Ask flaco anything — it has memory across Slack, TUI, and here." autocomplete="off">
         <button type="submit">Send</button>
+        <button type="button" class="ghost" hx-post="/new" hx-target="#chat-log" hx-swap="innerHTML">New</button>
         <span class="htmx-indicator">thinking…</span>
       </form>
       <div id="chat-log"></div>
