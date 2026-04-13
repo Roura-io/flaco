@@ -293,11 +293,22 @@ async fn serve_slack(runtime: Arc<Runtime>, features: Arc<Features>) -> Result<(
     }
 }
 
-/// Minimal .env loader — just enough so the binary can be run from the
-/// project root without needing an external tool.
+/// Minimal .env loader — just enough so the binary can be run from any
+/// directory without needing an external tool. Checks CWD, the canonical
+/// ~/infra/flaco-v2.env install path, and the flacoAi project parents.
 fn dotenv_load() -> Result<()> {
-    for candidate in [".env", "../.env", "../../.env"] {
-        if let Ok(text) = std::fs::read_to_string(candidate) {
+    let mut candidates: Vec<std::path::PathBuf> = vec![
+        std::path::PathBuf::from(".env"),
+        std::path::PathBuf::from("../.env"),
+        std::path::PathBuf::from("../../.env"),
+    ];
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        candidates.push(home.join("infra/flaco-v2.env"));
+        candidates.push(home.join(".flaco.env"));
+    }
+    for candidate in candidates {
+        if let Ok(text) = std::fs::read_to_string(&candidate) {
             for line in text.lines() {
                 let line = line.trim();
                 if line.is_empty() || line.starts_with('#') { continue; }
