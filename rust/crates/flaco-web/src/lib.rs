@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Form, State};
+use axum::extract::{Form, Path, State};
 use axum::response::{Html, IntoResponse};
 use axum::routing::{get, post};
 use axum::Router;
@@ -40,6 +40,7 @@ pub fn router(state: AppState) -> Router {
         .route("/scaffold", post(scaffold))
         .route("/memories", get(memories_list).post(memories_save))
         .route("/conversations", get(conversations_list))
+        .route("/conversations/{id}", get(conversation_detail))
         .route("/tool-log", get(tool_log))
         .route("/new", post(new_conversation))
         .route("/health", get(health))
@@ -202,13 +203,51 @@ async fn conversations_list(State(state): State<AppState>) -> impl IntoResponse 
     html.push_str("<ul class='convs'>");
     for c in convs {
         html.push_str(&format!(
-            "<li><b>{}</b> · {} · {}</li>",
+            "<li><a href='#' hx-get='/conversations/{}' hx-target='#chat-log' hx-swap='innerHTML'><b>{}</b> · {} · {}</a></li>",
+            html_escape::encode_text(&c.id),
             html_escape::encode_text(&c.surface),
             html_escape::encode_text(&c.user_id),
             html_escape::encode_text(c.title.as_deref().unwrap_or(&c.id[..8])),
         ));
     }
     html.push_str("</ul>");
+    Html(html)
+}
+
+async fn conversation_detail(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let msgs = state.runtime.memory.recent_messages(&id, 200).unwrap_or_default();
+    if msgs.is_empty() {
+        return Html("<div class='msg err'>conversation not found or empty</div>".to_string());
+    }
+    let mut html = String::new();
+    for m in msgs {
+        match m.role {
+            flaco_core::memory::Role::User => {
+                html.push_str(&format!(
+                    "<div class='msg user'><b>you</b><p>{}</p></div>",
+                    html_escape::encode_text(&m.content)
+                ));
+            }
+            flaco_core::memory::Role::Assistant => {
+                html.push_str(&format!(
+                    "<div class='msg flaco'><b>flaco</b><div class='md'>{}</div></div>",
+                    markdown_to_html(&m.content)
+                ));
+            }
+            flaco_core::memory::Role::Tool => {
+                let name = m.tool_name.unwrap_or_else(|| "tool".into());
+                html.push_str(&format!(
+                    "<div class='msg flaco'><b>tool · {}</b><pre>{}</pre></div>",
+                    html_escape::encode_text(&name),
+                    html_escape::encode_text(&m.content),
+                ));
+            }
+            flaco_core::memory::Role::System => { /* hide system prompt */ }
+        }
+    }
     Html(html)
 }
 
