@@ -79,6 +79,32 @@ async fn chat(State(state): State<AppState>, Form(form): Form<ChatForm>) -> impl
     if user_text.is_empty() {
         return Html("<div class='msg err'>(empty message)</div>".to_string());
     }
+
+    // Jarvis layer: try to match a natural-language intent first. If we
+    // get a hit, dispatch the action directly and skip the LLM round-trip.
+    // This is what makes `clear`, `reset`, `brief`, `status`, etc. all
+    // feel instant instead of taking 60-120 seconds.
+    if let Some(intent) = flaco_core::intent::detect(user_text) {
+        let reply = match flaco_core::intent::dispatch(
+            intent,
+            &state.runtime,
+            &state.features,
+            &Surface::Web,
+            &state.default_user,
+        )
+        .await
+        {
+            Ok(text) => text,
+            Err(e) => format!("error: {e}"),
+        };
+        return Html(format!(
+            "<div class='msg user'><b>you</b><p>{}</p></div>\
+             <div class='msg flaco'><b>flaco</b><div class='md'>{}</div></div>",
+            html_escape::encode_text(user_text),
+            markdown_to_html(&reply),
+        ));
+    }
+
     let session = match state.runtime.session(&Surface::Web, &state.default_user) {
         Ok(s) => s,
         Err(e) => {

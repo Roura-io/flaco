@@ -351,13 +351,61 @@ async fn handle_slack_message(
     // Strip bot mentions
     let clean_text = strip_mentions(text);
 
-    // Handle special commands — respond directly in channel
-    let trimmed = clean_text.trim();
-    if trimmed.eq_ignore_ascii_case("/reset")
-        || trimmed.eq_ignore_ascii_case("/clear")
-        || trimmed.eq_ignore_ascii_case("/new")
-        || trimmed.eq_ignore_ascii_case("/forget")
-    {
+    // Handle special commands — respond directly in channel.
+    //
+    // Natural-language reset phrasings (kept in sync with
+    // flaco-core::intent::detect — v1 channels doesn't depend on
+    // flaco-core to avoid a v1 → v2 coupling, so this list is
+    // deliberately duplicated. If you add a phrasing here, also add
+    // it to crates/flaco-core/src/intent.rs RESET_EXACT.)
+    let trimmed = clean_text.trim().trim_end_matches(['?', '!', '.', ',']);
+    let lowered = trimmed.to_ascii_lowercase();
+    let normalized = lowered
+        .trim_start_matches('/')
+        .trim()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    const RESET_PHRASINGS: &[&str] = &[
+        "reset",
+        "clear",
+        "new",
+        "forget",
+        "wipe",
+        "restart",
+        "start over",
+        "start fresh",
+        "new chat",
+        "new conversation",
+        "new thread",
+        "clear chat",
+        "clear this",
+        "clear this chat",
+        "clear this conversation",
+        "clear the chat",
+        "clear the conversation",
+        "reset chat",
+        "reset this",
+        "reset this chat",
+        "reset this conversation",
+        "reset the chat",
+        "reset the conversation",
+        "forget this",
+        "forget that",
+        "forget this conversation",
+        "forget the conversation",
+        "forget everything",
+        "wipe this",
+        "wipe the chat",
+        "wipe the conversation",
+        "hey flaco reset",
+        "hey flaco clear",
+        "flaco reset",
+        "flaco clear",
+    ];
+
+    if RESET_PHRASINGS.contains(&normalized.as_str()) {
         gateway.reset_conversation("slack", user).await;
         send_channel_message(
             http,

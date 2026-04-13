@@ -175,6 +175,26 @@ impl SlackAdapter {
         let text = event.get("text").and_then(Value::as_str).unwrap_or("").to_string();
         if text.trim().is_empty() { return Ok(()); }
 
+        // Jarvis layer: natural-language intent router runs BEFORE the
+        // LLM. This is what makes `clear` / `reset` / `clear this chat`
+        // work in Slack without any app-manifest slash-command registration
+        // — the bot sees the user's message as regular text and we handle
+        // the meta-command here. `intent::detect` strips Slack mentions
+        // like `<@Uxxx>` automatically, so `@flaco clear` also works.
+        if let Some(intent) = flaco_core::intent::detect(&text) {
+            let reply = flaco_core::intent::dispatch(
+                intent,
+                &self.runtime,
+                &self.features,
+                &Surface::Slack,
+                &user,
+            )
+            .await
+            .unwrap_or_else(|e| format!("error: {e}"));
+            self.post_message(&channel, &reply, None).await?;
+            return Ok(());
+        }
+
         let session = self.runtime.session(&Surface::Slack, &user)?;
         let reply = self.runtime.handle_turn(&session, &text, None).await?;
         let reply = if reply.trim().is_empty() { "(no reply)".into() } else { reply };

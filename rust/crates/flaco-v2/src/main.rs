@@ -224,6 +224,20 @@ async fn main() -> Result<()> {
         Command::Slack => serve_slack(runtime, features).await,
         Command::Tui => flaco_tui_v2::run(runtime, features).await,
         Command::Ask { text } => {
+            // Intent router first — `flaco-v2 ask "clear"` and similar
+            // natural-language meta-commands skip the LLM loop.
+            if let Some(intent) = flaco_core::intent::detect(&text) {
+                let reply = flaco_core::intent::dispatch(
+                    intent,
+                    &runtime,
+                    &features,
+                    &Surface::Cli,
+                    &cli.user,
+                )
+                .await?;
+                println!("{reply}");
+                return Ok(());
+            }
             let session = runtime.session(&Surface::Cli, &cli.user)?;
             let reply = runtime.handle_turn(&session, &text, None).await?;
             println!("{reply}");

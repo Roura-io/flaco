@@ -126,6 +126,35 @@ async fn handle_command(
     if text == "/q" || text == "/quit" || text == "/exit" {
         return HandleResult::Quit;
     }
+
+    // Jarvis layer: natural-language intent router runs first so plain
+    // `clear` / `reset` / `brief` / `status` work without any slash prefix.
+    // Only when detect() returns None do we fall through to the explicit
+    // `/research <topic>` style parsers below (which take structured args
+    // and need their own handlers).
+    if let Some(intent) = flaco_core::intent::detect(text) {
+        match flaco_core::intent::dispatch(
+            intent.clone(),
+            runtime,
+            features,
+            &Surface::Tui,
+            user_id,
+        )
+        .await
+        {
+            Ok(reply) => {
+                if matches!(intent, flaco_core::intent::Intent::Reset) {
+                    log.clear();
+                    log.push(LogEntry::System("conversation reset. fresh brain, same memory.".into()));
+                } else {
+                    log.push(LogEntry::Assistant(reply));
+                }
+            }
+            Err(e) => log.push(LogEntry::Error(format!("{e}"))),
+        }
+        return HandleResult::Continue;
+    }
+
     if let Some(topic) = text.strip_prefix("/research ") {
         match features.research(topic).await {
             Ok(r) => log.push(LogEntry::Assistant(r.to_markdown())),
@@ -152,36 +181,8 @@ async fn handle_command(
         }
         return HandleResult::Continue;
     }
-    if text == "/brief" || text == "/morning" {
-        match features.morning_brief(user_id).await {
-            Ok(b) => log.push(LogEntry::Assistant(b.markdown)),
-            Err(e) => log.push(LogEntry::Error(format!("brief: {e}"))),
-        }
-        return HandleResult::Continue;
-    }
-    if text == "/clear" || text == "/reset" || text == "/new" {
-        log.clear();
-        log.push(LogEntry::System("conversation reset. fresh brain, same memory.".into()));
-        return HandleResult::Continue;
-    }
-    if text == "/help" {
-        let help = "commands: /brief /research <topic> /shortcut name: desc /scaffold <idea> /memories /remember <fact> /clear /q";
-        log.push(LogEntry::System(help.into()));
-        return HandleResult::Continue;
-    }
-    if text == "/memories" {
-        let mems = runtime.memory.all_facts(user_id, 50).unwrap_or_default();
-        let text = if mems.is_empty() {
-            "(no memories yet)".into()
-        } else {
-            mems.iter()
-                .map(|m| format!("#{} [{}] {}", m.id, m.kind, m.content))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        log.push(LogEntry::Assistant(text));
-        return HandleResult::Continue;
-    }
+    // /brief, /clear, /reset, /new, /help, /memories, /tools, /status all
+    // handled by the intent router above — no per-surface duplication.
     if let Some(fact) = text.strip_prefix("/remember ") {
         match features.remember(user_id, fact, "fact") {
             Ok(id) => log.push(LogEntry::System(format!("remembered #{id}: {fact}"))),

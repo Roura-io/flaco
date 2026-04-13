@@ -10,6 +10,7 @@ pub mod session;
 pub mod tools;
 pub mod runtime;
 pub mod features;
+pub mod intent;
 
 pub use error::{Error, Result};
 pub use memory::{Memory, Conversation, Message, Role, Fact};
