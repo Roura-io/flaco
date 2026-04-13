@@ -38,6 +38,21 @@ rust/crates/
 All v1 crates (`runtime`, `channels`, `commands`, …) are untouched.
 `cargo test -p flaco-core -p flaco-web` is green.
 
+### Pre-existing test failures (NOT regressions)
+
+Three tests fail on `main` and therefore also on this branch — they are
+untouched by v2 and were broken before this work started:
+
+- `flaco-cli::tests::init_template_mentions_detected_rust_workspace` — asserts
+  `# FLACOAI.md` string that no longer exists in the template.
+- `flaco-cli::tests::shared_help_uses_resume_annotation_copy` — asserts an
+  old help line that was reworded.
+- `tools::tests::skill_loads_local_skill_prompt` — pre-existing panic in
+  crates/tools.
+
+They fail identically on `main` at `c6d08b7`. Fixing them is out of scope
+for this hackathon but called out so morning-you isn't surprised.
+
 ## Running
 
 ```
