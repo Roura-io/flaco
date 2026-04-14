@@ -519,13 +519,19 @@ async fn handle_slack_message(
 
     // Domain context routing (v1 backport of flaco-core::domain).
     //
-    // Classify the user message into one of 6 domains, check that the
+    // Classify the user message into one of 7 domains, check that the
     // required env vars are set (preflight), and build a transient
     // system-prompt stanza containing the domain's API patterns, auth
     // hints, and any ground-truth files that should be auto-read. This
     // is how v1 knows to use the UniFi cloud API with $UNIFI_API_KEY
     // instead of falling back to "ask the user for admin creds" when
     // someone types `check my unifi`.
+    //
+    // The UnasSave stanza is special-cased as an ADDITIVE context that
+    // stacks on top of whatever primary domain fired. "save this to my
+    // unas" is classified as UnasSave directly, but "research X and
+    // save it to my unas" classifies as General/Homelab/etc. with the
+    // save recipe stacked on top so flaco knows how to do both.
     let domain = crate::domain::classify_message(&clean_text);
     tracing::info!(target: "socket_mode", domain = %domain, "classified turn domain");
     if let Err(preflight_msg) = crate::domain::preflight(domain) {
@@ -533,7 +539,15 @@ async fn handle_slack_message(
         send_channel_message(http, bot_token, channel, &preflight_msg).await;
         return;
     }
-    let domain_context = crate::domain::build_context(domain);
+    let mut domain_context = crate::domain::build_context(domain);
+    if domain != crate::domain::Domain::UnasSave
+        && crate::domain::also_wants_save(&clean_text)
+    {
+        tracing::info!(target: "socket_mode", "stacking UnasSave stanza on top of primary domain");
+        domain_context.push_str(&crate::domain::build_context(
+            crate::domain::Domain::UnasSave,
+        ));
+    }
 
     // Post a "thinking" placeholder message, then update it with the response
     let thinking_ts = post_thinking_message(http, bot_token, channel, gateway.model()).await;

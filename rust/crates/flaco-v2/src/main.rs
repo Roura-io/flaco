@@ -159,6 +159,7 @@ fn build_runtime(cfg: &Config, user: &str) -> Result<(Arc<Runtime>, Arc<Features
     reg.register(Arc::new(Remember { memory: memory.clone(), default_user: user.into() }));
     reg.register(Arc::new(Recall { memory: memory.clone(), default_user: user.into() }));
     reg.register(Arc::new(ListMemories { memory: memory.clone(), default_user: user.into() }));
+    reg.register(Arc::new(flaco_core::tools::save_to_unas::SaveToUnas));
 
     tracing::info!("registered tools: {:?}", reg.names());
 

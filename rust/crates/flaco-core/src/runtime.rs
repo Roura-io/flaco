@@ -175,7 +175,21 @@ impl Runtime {
         // Build the transient system message once — we'll prepend it to
         // every LLM round inside the tool loop so the context survives
         // across tool calls without bloating the persisted history.
-        let domain_context = crate::domain::build_context(domain);
+        //
+        // UnasSave is special-cased: if classified directly, its stanza
+        // is the whole context; if another domain fired but the user
+        // also wants to save ("research X and save it to my unas"),
+        // stack the UnasSave stanza on top of the primary context so
+        // flaco has both recipes available in one prompt.
+        let mut domain_context = crate::domain::build_context(domain);
+        if domain != crate::domain::Domain::UnasSave
+            && crate::domain::also_wants_save(user_text)
+        {
+            tracing::info!("stacking UnasSave stanza on top of primary domain");
+            domain_context.push_str(&crate::domain::build_context(
+                crate::domain::Domain::UnasSave,
+            ));
+        }
 
         session.append_user(user_text)?;
 
