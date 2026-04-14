@@ -19,6 +19,10 @@ pub struct WebSearch {
     pub http: reqwest::Client,
 }
 
+impl Default for WebSearch {
+    fn default() -> Self { Self::new() }
+}
+
 impl WebSearch {
     pub fn new() -> Self {
         let http = reqwest::Client::builder()
@@ -130,6 +134,10 @@ impl Tool for WebSearch {
 }
 
 pub struct WebFetch { pub http: reqwest::Client }
+
+impl Default for WebFetch {
+    fn default() -> Self { Self::new() }
+}
 
 impl WebFetch {
     pub fn new() -> Self {

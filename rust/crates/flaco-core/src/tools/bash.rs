@@ -11,6 +11,10 @@ pub struct Bash {
     pub workdir: Option<std::path::PathBuf>,
 }
 
+impl Default for Bash {
+    fn default() -> Self { Self::new() }
+}
+
 impl Bash {
     pub fn new() -> Self { Self { workdir: None } }
     pub fn with_workdir(dir: impl Into<std::path::PathBuf>) -> Self {

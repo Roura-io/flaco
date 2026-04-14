@@ -10,6 +10,10 @@ pub struct Weather {
     pub http: reqwest::Client,
 }
 
+impl Default for Weather {
+    fn default() -> Self { Self::new() }
+}
+
 impl Weather {
     pub fn new() -> Self {
         Self {
