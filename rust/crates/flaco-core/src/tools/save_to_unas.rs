@@ -6,16 +6,19 @@
 //! Directory scheme inside the `Roura.io` shared drive:
 //!
 //!   Roura.io/
-//!     cjroura/         ← Chris's folder
+//!     cjroura/         ← Chris's folder (explicit exception — middle
+//!                        initial J disambiguates from Carolay)
+//!     caroroura/       ← Carolay's folder (explicit exception — first
+//!                        three letters of first name to avoid "croura"
+//!                        collision with Chris)
 //!       flaco/
 //!         shortcuts/   ← /shortcut output
 //!         research/    ← /research output (+ .md + cited sources)
 //!         scaffolds/   ← /scaffold output
 //!         notes/       ← /remember → markdown notes
-//!     wroura/          ← Walter's folder
-//!       flaco/
-//!         …same subdirs…
-//!     <other-user>/
+//!     wroura/          ← Walter's folder (auto-derived: W + Roura)
+//!     sroura/          ← Susan's folder  (auto-derived: S + Roura)
+//!     <other-user>/    ← auto-derived from real name at call time
 //!
 //! Why this design:
 //!
@@ -41,8 +44,18 @@
 //! - `FLACO_UNAS_USER_MAP` — comma-separated `slack_user_id=folder`
 //!   pairs mapping a canonical user id to a UNAS subfolder name.
 //!   Example: `chris=cjroura,U0AS9PLFLCD=wroura`. Case-sensitive.
+//!   Used for explicit overrides. Most users don't need an entry —
+//!   the tool auto-derives folders from real names.
 //! - `FLACO_UNAS_DEFAULT_FOLDER` — fallback folder used when the
-//!   current user isn't in the user map. Default: `shared`.
+//!   current user has no explicit map entry AND no real name was
+//!   passed for derivation. Default: `shared`.
+//!
+//! Folder resolution order:
+//!   1. `FLACO_UNAS_USER_MAP[user_id]`    (explicit override wins)
+//!   2. `derive_folder_from_name(real_name)` if a real name was
+//!      supplied by the caller — handles Chris / Carolay collision
+//!      exceptions internally, otherwise first-initial + last-name.
+//!   3. `FLACO_UNAS_DEFAULT_FOLDER` or `shared`.
 //!
 //! The tool NEVER auto-mounts. If `/Volumes/Roura.io` isn't mounted,
 //! the call returns a clear, actionable error — mounting is an ops
@@ -84,6 +97,17 @@ impl Tool for SaveToUnas {
                             The tool maps this to a UNAS subfolder via \
                             FLACO_UNAS_USER_MAP — never invent one yourself."
                     },
+                    "real_name": {
+                        "type": "string",
+                        "description": "Optional: the user's real full name \
+                            (e.g. 'Susan Roura'). When supplied and user_id \
+                            has no explicit FLACO_UNAS_USER_MAP entry, the \
+                            tool auto-derives the folder as \
+                            <first-initial><lastname-lowercase> — so new \
+                            family members get their own folder without any \
+                            config. Pass this whenever you know the name \
+                            (e.g. from Slack profile)."
+                    },
                     "category": {
                         "type": "string",
                         "enum": ["shortcuts", "research", "scaffolds", "notes", "drafts", "other"],
@@ -112,6 +136,7 @@ impl Tool for SaveToUnas {
 
     async fn call(&self, args: Value) -> Result<ToolResult> {
         let user_id = args.get("user_id").and_then(Value::as_str).unwrap_or("");
+        let real_name = args.get("real_name").and_then(Value::as_str);
         let category = args.get("category").and_then(Value::as_str).unwrap_or("other");
         let filename_raw = args.get("filename").and_then(Value::as_str).unwrap_or("");
         let content = args.get("content").and_then(Value::as_str).unwrap_or("");
@@ -126,7 +151,7 @@ impl Tool for SaveToUnas {
             return Ok(ToolResult::err("save_to_unas: refusing to write empty content"));
         }
 
-        let plan = match resolve_plan(user_id, category, filename_raw) {
+        let plan = match resolve_plan(user_id, real_name, category, filename_raw) {
             Ok(p) => p,
             Err(e) => return Ok(ToolResult::err(format!("save_to_unas: {e}"))),
         };
@@ -206,9 +231,14 @@ struct SavePlan {
     full_path: PathBuf,
 }
 
-fn resolve_plan(user_id: &str, category: &str, filename: &str) -> std::result::Result<SavePlan, String> {
+fn resolve_plan(
+    user_id: &str,
+    real_name: Option<&str>,
+    category: &str,
+    filename: &str,
+) -> std::result::Result<SavePlan, String> {
     let mount = unas_mount();
-    let folder = folder_for(user_id);
+    let folder = folder_for(user_id, real_name);
     let category = sanitize_segment(category);
     if category.is_empty() {
         return Err("category resolves to empty after sanitization".into());
@@ -241,15 +271,22 @@ fn unas_mount() -> PathBuf {
     )
 }
 
-/// Resolve a user id to their UNAS folder name. The mapping lives in
-/// `FLACO_UNAS_USER_MAP` as comma-separated `key=value` pairs. Example:
+/// Resolve a user id to their UNAS folder name.
 ///
-///   FLACO_UNAS_USER_MAP=chris=cjroura,U0AS9PLFLCD=wroura,walter=wroura
+/// Lookup order:
+///   1. `FLACO_UNAS_USER_MAP[user_id]` — comma-separated `key=value`
+///      pairs. Example:
+///      `FLACO_UNAS_USER_MAP=chris=cjroura,U0AS9PLFLCD=wroura`.
+///      Explicit overrides always win.
+///   2. `derive_folder_from_name(real_name)` if a real name was passed
+///      in. This handles the "new user joins" case without needing an
+///      env var update.
+///   3. `FLACO_UNAS_DEFAULT_FOLDER` (default `shared`). Never silently
+///      drop a save — always give the user SOMEWHERE to look.
 ///
-/// Falls back to `FLACO_UNAS_DEFAULT_FOLDER` (default `shared`) if the
-/// user id isn't in the map. The fallback is a deliberate choice: never
-/// silently drop a save, always give the user SOMEWHERE to look.
-fn folder_for(user_id: &str) -> String {
+/// NB: Slack user ids like `U0AS9PLFLCD` are NOT human-friendly, so the
+/// tool never falls back to user_id as a folder name.
+fn folder_for(user_id: &str, real_name: Option<&str>) -> String {
     if let Ok(map) = std::env::var("FLACO_UNAS_USER_MAP") {
         for entry in map.split(',') {
             let entry = entry.trim();
@@ -260,9 +297,64 @@ fn folder_for(user_id: &str) -> String {
             }
         }
     }
-    // Default fallback — NEVER use the literal user_id as a folder name
-    // because Slack user ids (`U0AS9PLFLCD`) aren't human-friendly.
+    if let Some(name) = real_name {
+        let derived = derive_folder_from_name(name);
+        if !derived.is_empty() {
+            return derived;
+        }
+    }
     std::env::var("FLACO_UNAS_DEFAULT_FOLDER").unwrap_or_else(|_| "shared".to_string())
+}
+
+/// Derive a UNAS folder name from a user's real full name.
+///
+/// Scheme: `<first-letter-of-first-name><lastname-lowercase>`. So:
+///   "Susan Roura"       → "sroura"
+///   "Walter Roura"      → "wroura"
+///   "Jane Smith"        → "jsmith"
+///
+/// Hardcoded Roura-household collision overrides — both Chris and
+/// Carolay share initials "C" and the surname "Roura", so the generic
+/// scheme would produce "croura" for both of them and they'd clobber
+/// each other's files. These two exceptions resolve the collision:
+///   "Christopher Roura" → "cjroura"   (middle initial J)
+///   "Carolay Roura"     → "caroroura" (first three letters of first name)
+///
+/// Any other "C* Roura" (e.g. a future Cassandra Roura) still derives
+/// to "croura" — add another override here if a real conflict appears.
+///
+/// Single-word inputs fall back to the lowercased word. Empty or
+/// whitespace-only input returns an empty string; the caller should
+/// treat that as "use the default folder".
+pub fn derive_folder_from_name(real_name: &str) -> String {
+    let trimmed = real_name.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let normalized = trimmed.to_ascii_lowercase();
+    let normalized_ws: String = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized_ws == "christopher roura" {
+        return "cjroura".to_string();
+    }
+    if normalized_ws == "carolay roura" {
+        return "caroroura".to_string();
+    }
+
+    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+    let derived = match parts.as_slice() {
+        [] => return String::new(),
+        [single] => single.to_ascii_lowercase(),
+        [first, .., last] => {
+            let initial = first
+                .chars()
+                .next()
+                .map(|c| c.to_ascii_lowercase().to_string())
+                .unwrap_or_default();
+            format!("{initial}{}", last.to_ascii_lowercase())
+        }
+    };
+    sanitize_segment(&derived)
 }
 
 /// Strip path separators, parent-dir traversal, and any other chars that
@@ -365,9 +457,9 @@ mod tests {
             "FLACO_UNAS_USER_MAP",
             Some("chris=cjroura,U0AS9PLFLCD=wroura,walter=wroura"),
             || {
-                assert_eq!(folder_for("chris"), "cjroura");
-                assert_eq!(folder_for("U0AS9PLFLCD"), "wroura");
-                assert_eq!(folder_for("walter"), "wroura");
+                assert_eq!(folder_for("chris", None), "cjroura");
+                assert_eq!(folder_for("U0AS9PLFLCD", None), "wroura");
+                assert_eq!(folder_for("walter", None), "wroura");
             },
         );
     }
@@ -377,9 +469,9 @@ mod tests {
         let _g = env_lock();
         with_env("FLACO_UNAS_USER_MAP", Some("chris=cjroura"), || {
             with_env("FLACO_UNAS_DEFAULT_FOLDER", None, || {
-                // Unknown id should NOT leak the raw id into the path —
-                // it should land in the safe default folder.
-                assert_eq!(folder_for("Ufoobar"), "shared");
+                // Unknown id with no real name should NOT leak the raw
+                // id into the path — it should land in the safe default.
+                assert_eq!(folder_for("Ufoobar", None), "shared");
             });
         });
     }
@@ -389,9 +481,67 @@ mod tests {
         let _g = env_lock();
         with_env("FLACO_UNAS_USER_MAP", Some("chris=cjroura"), || {
             with_env("FLACO_UNAS_DEFAULT_FOLDER", Some("guests"), || {
-                assert_eq!(folder_for("Usomeone"), "guests");
+                assert_eq!(folder_for("Usomeone", None), "guests");
             });
         });
+    }
+
+    #[test]
+    fn folder_for_derives_from_real_name_when_no_map_entry() {
+        let _g = env_lock();
+        with_env("FLACO_UNAS_USER_MAP", Some("chris=cjroura"), || {
+            // Unknown user id, but we know the real name → derive it.
+            assert_eq!(folder_for("U99", Some("Susan Roura")), "sroura");
+            assert_eq!(folder_for("U99", Some("Walter Roura")), "wroura");
+        });
+    }
+
+    #[test]
+    fn folder_for_prefers_explicit_map_over_derivation() {
+        let _g = env_lock();
+        // Even though "Christopher Roura" would derive to cjroura via
+        // the collision override, the explicit map entry should win
+        // regardless — that's the point of the override layer.
+        with_env("FLACO_UNAS_USER_MAP", Some("chris=override_me"), || {
+            assert_eq!(
+                folder_for("chris", Some("Christopher Roura")),
+                "override_me"
+            );
+        });
+    }
+
+    #[test]
+    fn derive_handles_roura_household_exceptions() {
+        assert_eq!(derive_folder_from_name("Christopher Roura"), "cjroura");
+        assert_eq!(derive_folder_from_name("Carolay Roura"), "caroroura");
+        // Case-insensitive — Slack profiles can be lowercased.
+        assert_eq!(derive_folder_from_name("christopher roura"), "cjroura");
+        assert_eq!(derive_folder_from_name("CAROLAY ROURA"), "caroroura");
+    }
+
+    #[test]
+    fn derive_auto_generates_first_initial_lastname() {
+        assert_eq!(derive_folder_from_name("Walter Roura"), "wroura");
+        assert_eq!(derive_folder_from_name("Susan Roura"), "sroura");
+        assert_eq!(derive_folder_from_name("Jane Smith"), "jsmith");
+    }
+
+    #[test]
+    fn derive_handles_middle_names() {
+        // Middle names/initials shouldn't affect the folder — only the
+        // first word's initial and the last word matter.
+        assert_eq!(derive_folder_from_name("Mary Jane Watson"), "mwatson");
+        assert_eq!(derive_folder_from_name("John Q. Public"), "jpublic");
+    }
+
+    #[test]
+    fn derive_handles_edge_cases() {
+        assert_eq!(derive_folder_from_name(""), "");
+        assert_eq!(derive_folder_from_name("   "), "");
+        // Single name falls back to the lowercased word.
+        assert_eq!(derive_folder_from_name("Madonna"), "madonna");
+        // Extra whitespace gets collapsed.
+        assert_eq!(derive_folder_from_name("  Walter   Roura  "), "wroura");
     }
 
     #[test]
@@ -413,7 +563,7 @@ mod tests {
         let _g = env_lock();
         with_env("FLACO_UNAS_MOUNT", Some("/tmp/unas-test"), || {
             with_env("FLACO_UNAS_USER_MAP", Some("chris=cjroura"), || {
-                let plan = resolve_plan("chris", "research", "yankees.md").unwrap();
+                let plan = resolve_plan("chris", None, "research", "yankees.md").unwrap();
                 assert_eq!(plan.folder, "cjroura");
                 assert_eq!(plan.category, "research");
                 assert_eq!(plan.filename, "yankees.md");
@@ -429,7 +579,7 @@ mod tests {
     fn resolve_plan_errors_on_empty_filename() {
         let _g = env_lock();
         with_env("FLACO_UNAS_USER_MAP", Some("chris=cjroura"), || {
-            let err = resolve_plan("chris", "notes", "").unwrap_err();
+            let err = resolve_plan("chris", None, "notes", "").unwrap_err();
             assert!(err.contains("filename"));
         });
     }
@@ -438,7 +588,7 @@ mod tests {
     fn resolve_plan_errors_on_empty_category() {
         let _g = env_lock();
         with_env("FLACO_UNAS_USER_MAP", Some("chris=cjroura"), || {
-            let err = resolve_plan("chris", "", "x.md").unwrap_err();
+            let err = resolve_plan("chris", None, "", "x.md").unwrap_err();
             assert!(err.contains("category"));
         });
     }

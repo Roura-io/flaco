@@ -291,16 +291,27 @@ auditable.
 Tool call shape:
   save_to_unas(
     user_id: "<canonical id of the requesting user>",
+    real_name: "<their full name, if you know it>",   // optional but encouraged
     category: one of [shortcuts, research, scaffolds, notes, drafts, other],
     filename: "<name-with-extension>",
     content: "<full text/markdown body>"
   )
 
-Per-user folder routing happens automatically via FLACO_UNAS_USER_MAP.
-You only supply the user_id; the tool resolves it to the right folder
-on the shared drive (cjroura, wroura, etc). Picked categories will
-land under /Volumes/Roura.io/<folder>/flaco/<category>/<filename> and
-the tool returns a Finder-friendly path plus an smb:// URL the user
+Per-user folder routing happens automatically:
+  1. An explicit FLACO_UNAS_USER_MAP entry always wins (overrides).
+  2. Otherwise, if you pass real_name, the tool derives the folder as
+     <first-initial><lastname-lowercase>. So "Susan Roura" becomes
+     "sroura", "Walter Roura" becomes "wroura", etc. Pass real_name
+     whenever you know it (e.g. from Slack profile) so new family
+     members get their own folder without any config update.
+  3. Otherwise it falls back to the shared folder.
+
+Known Roura-household exceptions (hardcoded, collide on "croura"):
+- "Christopher Roura" → cjroura
+- "Carolay Roura"     → caroroura
+
+Picked categories land under /Volumes/Roura.io/<folder>/flaco/<category>/<filename>
+and the tool returns a Finder-friendly path plus an smb:// URL the user
 can open from any Apple device.
 
 If the tool reports the mount is missing, NEVER fall back to writing
