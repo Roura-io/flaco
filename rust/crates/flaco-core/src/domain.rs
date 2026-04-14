@@ -39,6 +39,7 @@ pub enum Domain {
     GitHub,
     Figma,
     Homelab,
+    UnasSave,
     General,
 }
 
@@ -56,6 +57,7 @@ impl Domain {
             Domain::GitHub => &GITHUB,
             Domain::Figma => &FIGMA,
             Domain::Homelab => &HOMELAB,
+            Domain::UnasSave => &UNAS_SAVE,
             Domain::General => &GENERAL,
         }
     }
@@ -69,6 +71,7 @@ impl Domain {
             Domain::GitHub,
             Domain::Figma,
             Domain::Homelab,
+            Domain::UnasSave,
             Domain::General,
         ]
     }
@@ -272,6 +275,42 @@ For anything unusual, run it first.
     preferred_tools: &["bash", "fs_read"],
 };
 
+const UNAS_SAVE: DomainSpec = DomainSpec {
+    name: "unas_save",
+    env_keys: &[],
+    optional_env: &["FLACO_UNAS_MOUNT", "FLACO_UNAS_USER_MAP"],
+    system_prompt_stanza: r#"
+## Saving artifacts to the UNAS
+
+When the user asks you to "save this", "put this in my unas", or wants
+a file written somewhere persistent, use the `save_to_unas` typed tool.
+Do NOT use bash + mkdir/cat for saves — the tool is safer (path
+sanitization, per-user folder routing, structured output) and more
+auditable.
+
+Tool call shape:
+  save_to_unas(
+    user_id: "<canonical id of the requesting user>",
+    category: one of [shortcuts, research, scaffolds, notes, drafts, other],
+    filename: "<name-with-extension>",
+    content: "<full text/markdown body>"
+  )
+
+Per-user folder routing happens automatically via FLACO_UNAS_USER_MAP.
+You only supply the user_id; the tool resolves it to the right folder
+on the shared drive (cjroura, wroura, etc). Picked categories will
+land under /Volumes/Roura.io/<folder>/flaco/<category>/<filename> and
+the tool returns a Finder-friendly path plus an smb:// URL the user
+can open from any Apple device.
+
+If the tool reports the mount is missing, NEVER fall back to writing
+to the local mac-server filesystem. Tell the user the UNAS mount is
+down and surface the error. Silent local fallback = silent data loss.
+"#,
+    ground_truth_files: &[],
+    preferred_tools: &["save_to_unas"],
+};
+
 const GENERAL: DomainSpec = DomainSpec {
     name: "general",
     env_keys: &[],
@@ -311,7 +350,18 @@ pub fn classify_message(text: &str) -> Domain {
     if any_contains(&lower, HOMELAB_KEYWORDS) {
         return Domain::Homelab;
     }
+    if any_contains(&lower, UNAS_SAVE_KEYWORDS) {
+        return Domain::UnasSave;
+    }
     Domain::General
+}
+
+/// Returns true if the message intends a UNAS save alongside its
+/// primary intent. Callers should stack the `UnasSave` stanza on top
+/// of whatever primary domain fired — e.g. "research X and save it
+/// to my unas" gets both the research context AND the save recipe.
+pub fn also_wants_save(text: &str) -> bool {
+    any_contains(&text.to_ascii_lowercase(), UNAS_SAVE_KEYWORDS)
 }
 
 fn any_contains(haystack: &str, needles: &[&str]) -> bool {
@@ -382,11 +432,30 @@ const HOMELAB_KEYWORDS: &[&str] = &[
     "my home lab",
     "my infrastructure",
     "my infra",
-    "my nas",
-    "my unas",
     "pi.home",
     "mac.home",
     "ollama.home",
+];
+
+const UNAS_SAVE_KEYWORDS: &[&str] = &[
+    "save this",
+    "save it to",
+    "save to my unas",
+    "save to the unas",
+    "save to unas",
+    "save to my folder",
+    "put this in my unas",
+    "put it in my unas",
+    "put in my unas",
+    "write to my unas",
+    "write this to my unas",
+    "stash this in",
+    "drop this in my unas",
+    "save as a file",
+    "save as md",
+    "save as markdown",
+    "my unas",
+    "my nas",
 ];
 
 // ---------------------------------------------------------------------------
@@ -535,6 +604,42 @@ mod tests {
         assert_eq!(classify_message("is my mac server up"), Domain::Homelab);
         assert_eq!(classify_message("reboot my vps"), Domain::Homelab);
         assert_eq!(classify_message("my homelab status"), Domain::Homelab);
+    }
+
+    #[test]
+    fn classify_save_to_unas_standalone() {
+        assert_eq!(classify_message("save this to my unas"), Domain::UnasSave);
+        assert_eq!(classify_message("put this in my unas"), Domain::UnasSave);
+        assert_eq!(classify_message("stash this in my unas"), Domain::UnasSave);
+    }
+
+    #[test]
+    fn also_wants_save_detects_mixed_intent() {
+        assert!(also_wants_save("research this and save it to my unas"));
+        assert!(also_wants_save("check my network and save it to my unas"));
+        assert!(!also_wants_save("just a quick question"));
+    }
+
+    #[test]
+    fn primary_domain_wins_when_mixed_with_save() {
+        // "check my unifi and save it to my unas" should classify as
+        // Unifi (the primary action) but also_wants_save should return
+        // true so the caller can stack the UnasSave stanza on top.
+        assert_eq!(
+            classify_message("check my unifi and save it to my unas"),
+            Domain::Unifi
+        );
+        assert!(also_wants_save("check my unifi and save it to my unas"));
+    }
+
+    #[test]
+    fn unas_save_spec_mentions_save_to_unas_tool() {
+        // Anti-regression: the UnasSave stanza must direct the model to
+        // use the typed `save_to_unas` tool, NOT ad-hoc bash writes.
+        let stanza = UNAS_SAVE.system_prompt_stanza;
+        assert!(stanza.contains("save_to_unas"));
+        assert!(stanza.contains("Per-user folder routing"));
+        assert!(stanza.to_lowercase().contains("never"));
     }
 
     #[test]

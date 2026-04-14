@@ -22,6 +22,7 @@ pub mod memory_tool;
 pub mod shortcut;
 pub mod scaffold;
 pub mod research;
+pub mod save_to_unas;
 pub mod slack_post;
 pub mod weather;
 
