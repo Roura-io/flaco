@@ -206,9 +206,16 @@ the UNAS shared drive under the user's own folder. Directory scheme:
   /Volumes/Roura.io/<user-folder>/flaco/<category>/<filename>
 
 WHO IS "MY FOLDER":
-- Chris (cjroura@roura.io)                → cjroura
-- Walter Roura (wroura@gmail.com)         → wroura
-- any other user                          → shared
+Folder names follow the scheme <first-initial><lastname-lowercase>
+with two hardcoded exceptions for the Chris/Carolay collision:
+- Christopher Roura (cjroura@roura.io)  → cjroura   (exception)
+- Carolay Roura                         → caroroura (exception)
+- Walter Roura                          → wroura
+- Susan Roura                           → sroura
+- any other user                        → first initial + lowercased
+                                          last name (e.g. Jane Smith
+                                          → jsmith). Fallback is
+                                          `shared` if no real name.
 
 CATEGORIES (pick the best fit):
 - shortcuts  — generated Siri Shortcut .shortcut files
