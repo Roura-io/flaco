@@ -159,6 +159,24 @@ impl Runtime {
             .recent_messages(&session.conversation.id, 50)
             .map(|h| h.iter().all(|m| m.role != Role::User))
             .unwrap_or(true);
+
+        // Domain context routing: classify the user message ONCE per turn
+        // to pick the right system-prompt stanza, required env, and
+        // source-of-truth files. If the domain needs env that isn't set,
+        // refuse gracefully before burning an LLM call.
+        let domain = crate::domain::classify_message(user_text);
+        tracing::info!(domain = %domain, "classified turn domain");
+        if let Err(preflight_msg) = crate::domain::preflight(domain) {
+            tracing::warn!(domain = %domain, "preflight failed: {preflight_msg}");
+            session.append_user(user_text)?;
+            session.append_assistant(&preflight_msg)?;
+            return Ok(preflight_msg);
+        }
+        // Build the transient system message once — we'll prepend it to
+        // every LLM round inside the tool loop so the context survives
+        // across tool calls without bloating the persisted history.
+        let domain_context = crate::domain::build_context(domain);
+
         session.append_user(user_text)?;
 
         // Dedup state for this turn. Every (tool_name, canonicalized_args)
@@ -173,20 +191,28 @@ impl Runtime {
         loop {
             round += 1;
             let history = self.memory.recent_messages(&session.conversation.id, 30)?;
-            let messages: Vec<ChatMessage> = history
-                .iter()
-                .map(|m| match m.role {
-                    Role::System => ChatMessage::system(&m.content),
-                    Role::User => ChatMessage::user(&m.content),
-                    Role::Assistant => ChatMessage::assistant(&m.content),
-                    Role::Tool => ChatMessage {
-                        role: "tool".into(),
-                        content: m.content.clone(),
-                        tool_calls: vec![],
-                        tool_name: m.tool_name.clone(),
-                    },
-                })
-                .collect();
+            let mut messages: Vec<ChatMessage> = Vec::with_capacity(history.len() + 1);
+            // Transient system message: the domain-specific stanza +
+            // auto-read source-of-truth files. Injected fresh every
+            // round of the tool loop so the model doesn't "forget"
+            // the domain context mid-turn, but NEVER persisted to
+            // SQLite — which keeps the history clean and lets a
+            // future turn in the same conversation pick a different
+            // domain without the old stanza leaking in.
+            if !domain_context.is_empty() {
+                messages.push(ChatMessage::system(&domain_context));
+            }
+            messages.extend(history.iter().map(|m| match m.role {
+                Role::System => ChatMessage::system(&m.content),
+                Role::User => ChatMessage::user(&m.content),
+                Role::Assistant => ChatMessage::assistant(&m.content),
+                Role::Tool => ChatMessage {
+                    role: "tool".into(),
+                    content: m.content.clone(),
+                    tool_calls: vec![],
+                    tool_name: m.tool_name.clone(),
+                },
+            }));
 
             let schemas = self.tools.schemas();
             let resp = match self.ollama.chat(messages, schemas).await {

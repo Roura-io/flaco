@@ -9,6 +9,7 @@ pub mod persona;
 pub mod session;
 pub mod tools;
 pub mod runtime;
+pub mod domain;
 pub mod features;
 pub mod intent;
 pub mod welcome;
