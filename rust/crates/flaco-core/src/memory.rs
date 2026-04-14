@@ -366,6 +366,43 @@ impl Memory {
         )?;
         Ok(())
     }
+
+    /// Returns true if the given (user, surface, flag) has ever been set.
+    /// Used for one-time events like welcome banners.
+    pub fn has_seen_flag(&self, user_id: &str, surface: &str, flag: &str) -> Result<bool> {
+        let c = self.inner.lock().unwrap();
+        let mut stmt = c.prepare(
+            "SELECT 1 FROM user_state WHERE user_id = ?1 AND surface = ?2 AND flag = ?3 LIMIT 1",
+        )?;
+        let exists = stmt.exists(params![user_id, surface, flag])?;
+        Ok(exists)
+    }
+
+    /// Atomically marks a (user, surface, flag) as seen. No-op if already set.
+    /// Returns true if this call was the one that set the flag (i.e. it was
+    /// NOT previously set). This lets callers do a "check-and-set" race-free.
+    pub fn mark_flag(
+        &self,
+        user_id: &str,
+        surface: &str,
+        flag: &str,
+        value: Option<&str>,
+    ) -> Result<bool> {
+        let c = self.inner.lock().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        // INSERT OR IGNORE returns 1 if the row was inserted, 0 if it was
+        // a conflict with the existing primary key — perfect for our
+        // "has this ever fired before?" check.
+        let rows = c.execute(
+            "INSERT OR IGNORE INTO user_state (user_id, surface, flag, value, set_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![user_id, surface, flag, value, now],
+        )?;
+        Ok(rows == 1)
+    }
 }
 
 const SCHEMA: &str = r#"
@@ -415,6 +452,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
     content, user_id, kind,
     tokenize='porter unicode61'
 );
+
+-- Per-user, per-surface flags for one-time events (welcome banners,
+-- onboarding hints, etc). Composite key so the same flag fires once
+-- per (user, surface) pair — a user who's seen the Slack welcome will
+-- still see the TUI welcome the first time they open it.
+CREATE TABLE IF NOT EXISTS user_state (
+    user_id TEXT NOT NULL,
+    surface TEXT NOT NULL,
+    flag    TEXT NOT NULL,
+    value   TEXT,
+    set_at  INTEGER NOT NULL,
+    PRIMARY KEY (user_id, surface, flag)
+);
 "#;
 
 #[cfg(test)]
@@ -451,5 +501,28 @@ mod tests {
         let hits = m.search_facts("chris", "yankees", 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].content, "yankees fan");
+    }
+
+    #[test]
+    fn user_state_flag_fires_once() {
+        let m = Memory::open_in_memory().unwrap();
+        // First call sets the flag
+        assert!(!m.has_seen_flag("chris", "slack", "welcome_v1").unwrap());
+        assert!(m.mark_flag("chris", "slack", "welcome_v1", None).unwrap());
+        // Second call is a no-op and returns false
+        assert!(m.has_seen_flag("chris", "slack", "welcome_v1").unwrap());
+        assert!(!m.mark_flag("chris", "slack", "welcome_v1", None).unwrap());
+    }
+
+    #[test]
+    fn user_state_flag_is_scoped_per_surface_and_user() {
+        let m = Memory::open_in_memory().unwrap();
+        m.mark_flag("chris", "slack", "welcome_v1", None).unwrap();
+        // Same flag, different surface = still unseen
+        assert!(!m.has_seen_flag("chris", "tui", "welcome_v1").unwrap());
+        // Same surface, different user = still unseen
+        assert!(!m.has_seen_flag("walter", "slack", "welcome_v1").unwrap());
+        // Same flag, same surface, same user = seen
+        assert!(m.has_seen_flag("chris", "slack", "welcome_v1").unwrap());
     }
 }

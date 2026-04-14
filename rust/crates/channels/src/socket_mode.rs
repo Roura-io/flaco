@@ -339,6 +339,77 @@ async fn handle_slack_message_sync(
 }
 
 /// Handle a single Slack message: get/create conversation, call Ollama, respond.
+/// First-contact welcome banner shown exactly once per Slack user.
+///
+/// Durability is a local file (`~/.flaco-v1-welcome-seen.txt`, one user id
+/// per line). This is deliberately decoupled from v2's SQLite
+/// `user_state` table so v1 `channels` doesn't grow a `flaco-core`
+/// dependency — the "v1 untouched" safety rail stays in place.
+const V1_WELCOME: &str = "\
+:wave: *Hi, I'm flaco — your local AI assistant.*\n\
+I run entirely on your Mac (Ollama + `qwen3:32b-q8_0`). No cloud, \
+no API keys leaving the house.\n\
+\n\
+*Things I'm good at — try any of these:*\n\
+• Just *talk to me* — ask a question, I'll research with real citations\n\
+• \"*who do the yankees play today?*\" — real MLB data, I know today's date\n\
+• \"*what's on my plate today?*\" — I'll pull from memory + open Jira\n\
+• \"*clear*\", \"*reset*\", \"*new chat*\" — instant new conversation, any phrasing\n\
+• `/help` — full command list\n\
+\n\
+*Why it's useful:* I can look up live sports/news without \
+hallucinating (I know what year it is), draft emails, fact-check \
+rumors before you act on them, and remember what you tell me across \
+Slack, terminal, and the web UI.\n\
+\n\
+You'll only see this message once. Go ahead and try something.";
+
+fn welcome_file_path() -> std::path::PathBuf {
+    if let Ok(h) = std::env::var("HOME") {
+        std::path::PathBuf::from(h).join(".flaco-v1-welcome-seen.txt")
+    } else {
+        std::path::PathBuf::from("/tmp/.flaco-v1-welcome-seen.txt")
+    }
+}
+
+/// Atomic check-and-set: returns true if the user has NOT seen the
+/// welcome banner yet (and records that they have now). Returns false
+/// on repeat visits or on any I/O error (never block the hot path).
+fn claim_welcome_for(user: &str) -> bool {
+    use std::io::{BufRead, BufReader, Write};
+    let path = welcome_file_path();
+    // Ensure parent exists (HOME should always exist but be defensive).
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    // Read existing ids
+    if let Ok(f) = std::fs::File::open(&path) {
+        let seen: std::collections::HashSet<String> = BufReader::new(f)
+            .lines()
+            .map_while(Result::ok)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if seen.contains(user) {
+            return false;
+        }
+    }
+    // Append the new user id
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        // Writing the id is what claims the welcome. Failure = don't
+        // show the banner this time, because we couldn't persist the
+        // fact that we showed it (so it'd show again next time).
+        if writeln!(f, "{}", user).is_ok() {
+            return true;
+        }
+    }
+    false
+}
+
 async fn handle_slack_message(
     http: &reqwest::Client,
     bot_token: &str,
@@ -348,6 +419,15 @@ async fn handle_slack_message(
     text: &str,
     _thread_ts: Option<&str>,
 ) {
+    // First-contact welcome banner. Runs before any command handling or
+    // LLM routing so a brand-new user gets a one-screen primer on what
+    // flaco is and what to try. Fires exactly once per Slack user id,
+    // persisted via ~/.flaco-v1-welcome-seen.txt. Failing silently is
+    // fine — welcome is a nice-to-have, not part of the critical path.
+    if claim_welcome_for(user) {
+        send_channel_message(http, bot_token, channel, V1_WELCOME).await;
+    }
+
     // Strip bot mentions
     let clean_text = strip_mentions(text);
 

@@ -11,6 +11,7 @@ pub mod tools;
 pub mod runtime;
 pub mod features;
 pub mod intent;
+pub mod welcome;
 
 pub use error::{Error, Result};
 pub use memory::{Memory, Conversation, Message, Role, Fact};

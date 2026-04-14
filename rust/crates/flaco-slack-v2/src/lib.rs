@@ -175,6 +175,21 @@ impl SlackAdapter {
         let text = event.get("text").and_then(Value::as_str).unwrap_or("").to_string();
         if text.trim().is_empty() { return Ok(()); }
 
+        // First-contact welcome banner. This fires exactly once per
+        // (user, surface) pair — backed by memory::user_state — so a
+        // new user gets context on what flaco is and what to try. The
+        // banner goes out BEFORE we handle the triggering message so
+        // the user's first attempt still gets answered in the next
+        // step. Failing silently is fine: welcome is a nice-to-have,
+        // not part of the critical path.
+        if let Some(banner) =
+            flaco_core::welcome::maybe_show(&self.runtime.memory, &user, Surface::Slack)
+        {
+            if let Err(e) = self.post_message(&channel, &banner, None).await {
+                warn!("failed to post welcome banner: {e}");
+            }
+        }
+
         // Jarvis layer: natural-language intent router runs BEFORE the
         // LLM. This is what makes `clear` / `reset` / `clear this chat`
         // work in Slack without any app-manifest slash-command registration
