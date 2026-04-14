@@ -517,6 +517,24 @@ async fn handle_slack_message(
         return;
     }
 
+    // Domain context routing (v1 backport of flaco-core::domain).
+    //
+    // Classify the user message into one of 6 domains, check that the
+    // required env vars are set (preflight), and build a transient
+    // system-prompt stanza containing the domain's API patterns, auth
+    // hints, and any ground-truth files that should be auto-read. This
+    // is how v1 knows to use the UniFi cloud API with $UNIFI_API_KEY
+    // instead of falling back to "ask the user for admin creds" when
+    // someone types `check my unifi`.
+    let domain = crate::domain::classify_message(&clean_text);
+    tracing::info!(target: "socket_mode", domain = %domain, "classified turn domain");
+    if let Err(preflight_msg) = crate::domain::preflight(domain) {
+        tracing::warn!(target: "socket_mode", domain = %domain, "preflight failed: {preflight_msg}");
+        send_channel_message(http, bot_token, channel, &preflight_msg).await;
+        return;
+    }
+    let domain_context = crate::domain::build_context(domain);
+
     // Post a "thinking" placeholder message, then update it with the response
     let thinking_ts = post_thinking_message(http, bot_token, channel, gateway.model()).await;
 
@@ -526,9 +544,12 @@ async fn handle_slack_message(
         .await;
     conversation.push_user(clean_text.clone());
 
-    // Build prompt with persona + history
+    // Build prompt with persona + domain context + history
     let persona = ChannelPersona::slack();
     let mut prompt_parts = vec![persona.prompt_overlay.clone()];
+    if !domain_context.is_empty() {
+        prompt_parts.push(domain_context);
+    }
 
     if conversation.messages.len() > 1 {
         let history: Vec<String> = conversation

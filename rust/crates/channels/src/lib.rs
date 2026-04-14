@@ -9,6 +9,7 @@
     clippy::double_must_use
 )]
 
+pub mod domain;
 pub mod gateway;
 pub mod slack;
 pub mod socket_mode;
