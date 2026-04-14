@@ -73,11 +73,27 @@ async fn run_loop<B: Backend>(
     features: Arc<Features>,
 ) -> Result<()> {
     let mut input = String::new();
-    let mut log: Vec<LogEntry> = vec![LogEntry::System(
-        "welcome to flaco v2. memory is shared with Slack + Web. type /q to quit.".into(),
-    )];
-    let mut scroll: u16 = 0;
     let user_id = "chris".to_string();
+
+    // Seed the scrollback. If this is the user's first TUI launch on
+    // this DB, show the full onboarding banner (fires exactly once per
+    // (user, surface) via memory::user_state). Otherwise, a short
+    // session banner. Failing silently falls back to the short banner.
+    let mut log: Vec<LogEntry> = Vec::new();
+    if let Some(banner) =
+        flaco_core::welcome::maybe_show(&runtime.memory, &user_id, Surface::Tui)
+    {
+        // Render the welcome as a System line per non-empty paragraph
+        // so ratatui's wrap works naturally.
+        for line in banner.lines() {
+            log.push(LogEntry::System(line.to_string()));
+        }
+    } else {
+        log.push(LogEntry::System(
+            "flaco v2 · memory is shared with Slack + Web · type /q to quit".into(),
+        ));
+    }
+    let mut scroll: u16 = 0;
 
     let model = runtime.ollama.model().to_string();
     let fact_count = runtime.memory.all_facts(&user_id, 10_000).map(|v| v.len()).unwrap_or(0);
