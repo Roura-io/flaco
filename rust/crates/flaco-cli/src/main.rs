@@ -4469,7 +4469,10 @@ mod tests {
         let help = commands::render_slash_command_help();
         assert!(help.contains("Slash commands"));
         assert!(help.contains("Tab completes commands inside the REPL."));
-        assert!(help.contains("available via flaco --resume SESSION.json"));
+        // The help copy renames `flaco` → `flacoai` so the annotation
+        // matches the installed binary name. Keep this test in lockstep
+        // with `crates/commands/src/lib.rs::render_slash_command_help`.
+        assert!(help.contains("available via flacoai --resume SESSION.json"));
     }
 
     #[test]
@@ -4765,7 +4768,12 @@ mod tests {
     #[test]
     fn init_template_mentions_detected_rust_workspace() {
         let rendered = crate::init::render_init_claw_md(std::path::Path::new("."));
-        assert!(rendered.contains("# FLACOAI.md"));
+        // The generated guidance file is `CLAW.md` — assert we get the
+        // expected heading and the canonical Rust verification command.
+        // (Drifted from `# FLACOAI.md` when the template was renamed;
+        // this test asserted the pre-rename string and was red on main
+        // for both v1 and v2 grading.)
+        assert!(rendered.contains("# CLAW.md"));
         assert!(rendered.contains("cargo clippy --workspace --all-targets -- -D warnings"));
     }
 

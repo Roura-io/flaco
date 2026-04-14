@@ -1,0 +1,89 @@
+name: rust
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'chore/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clippy:
+    name: clippy (v2+v3 crates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      # Only the crates hackathon 3 owns. v1 crates (api/runtime/tools/
+      # channels/compat-harness/flaco-cli) are pre-existing and their
+      # clippy hygiene is tracked separately.
+      - name: clippy flaco-core flaco-config flaco-web flaco-v2 flaco-tui-v2 flaco-slack-v2
+        working-directory: rust
+        run: |
+          cargo clippy \
+            -p flaco-core \
+            -p flaco-config \
+            -p flaco-web \
+            -p flaco-v2 \
+            -p flaco-tui-v2 \
+            -p flaco-slack-v2 \
+            --all-targets -- -D warnings
+
+  test:
+    name: test (v2+v3 crates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: cargo test flaco-core flaco-config flaco-web
+        working-directory: rust
+        run: |
+          cargo test \
+            -p flaco-core \
+            -p flaco-config \
+            -p flaco-web \
+            --all-targets
+
+  # The live-Ollama smoke test (flaco-core/tests/ollama_smoke.rs) is
+  # #[ignore]d by default. It requires a reachable Ollama and is
+  # triggered manually via `workflow_dispatch` when the homelab tunnel
+  # is active, not on every PR.
+  ollama-smoke:
+    name: live-ollama smoke (manual)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: cargo test ollama_smoke -- --ignored
+        working-directory: rust
+        env:
+          OLLAMA_URL: ${{ secrets.OLLAMA_URL }}
+          FLACO_MODEL: qwen3-vl:8b
+        run: |
+          cargo test -p flaco-core --test ollama_smoke -- --ignored --nocapture

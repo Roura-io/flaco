@@ -226,6 +226,22 @@ pub async fn run_socket_mode(
                         }
                     }
                 }
+                "slash_commands" => {
+                    let payload = envelope["payload"].clone();
+                    let cmd = payload["command"].as_str().unwrap_or("").to_string();
+                    let text = payload["text"].as_str().unwrap_or("").trim().to_string();
+                    let channel = payload["channel_id"].as_str().unwrap_or("").to_string();
+                    let user = payload["user_id"].as_str().unwrap_or("").to_string();
+                    if channel.is_empty() || user.is_empty() {
+                        continue;
+                    }
+                    let http = http.clone();
+                    let bot_token = bot_token.to_string();
+                    let gateway = Arc::clone(&gateway);
+                    tokio::spawn(async move {
+                        handle_slash_command(&http, &bot_token, &gateway, &user, &channel, &cmd, &text).await;
+                    });
+                }
                 _ => {
                     tracing::debug!("Ignoring Socket Mode event type: {event_type}");
                 }
@@ -263,6 +279,65 @@ async fn get_websocket_url(http: &reqwest::Client, app_token: &str) -> Result<St
         .ok_or_else(|| "no url in connections.open response".into())
 }
 
+/// Handle a Slack slash command invocation coming through Socket Mode.
+/// Supports the small set of commands we register in the Slack app manifest.
+async fn handle_slash_command(
+    http: &reqwest::Client,
+    bot_token: &str,
+    gateway: &Gateway,
+    user: &str,
+    channel: &str,
+    command: &str,
+    text: &str,
+) {
+    match command {
+        "/reset" | "/clear" | "/new" | "/forget" => {
+            gateway.reset_conversation("slack", user).await;
+            send_channel_message(http, bot_token, channel, "Conversation reset. Starting fresh — what's up?").await;
+        }
+        "/status" => {
+            let active = gateway.active_conversations().await;
+            let msg = format!(
+                "flacoAi is online. Model: `{}`. Active conversations: {active}.",
+                gateway.model()
+            );
+            send_channel_message(http, bot_token, channel, &msg).await;
+        }
+        "/help" => {
+            let help = "*flacoAi — powered by Roura.io*\n\
+                `/reset` or `/clear` — wipe this conversation and start fresh\n\
+                `/status` — model + active conversation count\n\
+                `/help` — this message\n\
+                Just @-mention me or DM me anywhere to chat.";
+            send_channel_message(http, bot_token, channel, help).await;
+        }
+        _ => {
+            // Unknown slash command: treat the argument text as a normal message
+            // so the user still gets a useful response.
+            let fallback = if text.is_empty() {
+                format!("I don't know the `{command}` command yet. Try `/help`.")
+            } else {
+                handle_slack_message_sync(http, bot_token, gateway, user, channel, text, None).await;
+                return;
+            };
+            send_channel_message(http, bot_token, channel, &fallback).await;
+        }
+    }
+}
+
+/// Synchronous helper wrapping `handle_slack_message` for the slash command path.
+async fn handle_slack_message_sync(
+    http: &reqwest::Client,
+    bot_token: &str,
+    gateway: &Gateway,
+    user: &str,
+    channel: &str,
+    text: &str,
+    thread_ts: Option<&str>,
+) {
+    handle_slack_message(http, bot_token, gateway, user, channel, text, thread_ts).await;
+}
+
 /// Handle a single Slack message: get/create conversation, call Ollama, respond.
 async fn handle_slack_message(
     http: &reqwest::Client,
@@ -276,16 +351,79 @@ async fn handle_slack_message(
     // Strip bot mentions
     let clean_text = strip_mentions(text);
 
-    // Handle special commands — respond directly in channel
-    if clean_text.trim().eq_ignore_ascii_case("/reset") {
+    // Handle special commands — respond directly in channel.
+    //
+    // Natural-language reset phrasings (kept in sync with
+    // flaco-core::intent::detect — v1 channels doesn't depend on
+    // flaco-core to avoid a v1 → v2 coupling, so this list is
+    // deliberately duplicated. If you add a phrasing here, also add
+    // it to crates/flaco-core/src/intent.rs RESET_EXACT.)
+    let trimmed = clean_text.trim().trim_end_matches(['?', '!', '.', ',']);
+    let lowered = trimmed.to_ascii_lowercase();
+    let normalized = lowered
+        .trim_start_matches('/')
+        .trim()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    const RESET_PHRASINGS: &[&str] = &[
+        "reset",
+        "clear",
+        "new",
+        "forget",
+        "wipe",
+        "restart",
+        "start over",
+        "start fresh",
+        "new chat",
+        "new conversation",
+        "new thread",
+        "clear chat",
+        "clear this",
+        "clear this chat",
+        "clear this conversation",
+        "clear the chat",
+        "clear the conversation",
+        "reset chat",
+        "reset this",
+        "reset this chat",
+        "reset this conversation",
+        "reset the chat",
+        "reset the conversation",
+        "forget this",
+        "forget that",
+        "forget this conversation",
+        "forget the conversation",
+        "forget everything",
+        "wipe this",
+        "wipe the chat",
+        "wipe the conversation",
+        "hey flaco reset",
+        "hey flaco clear",
+        "flaco reset",
+        "flaco clear",
+    ];
+
+    if RESET_PHRASINGS.contains(&normalized.as_str()) {
         gateway.reset_conversation("slack", user).await;
         send_channel_message(
             http,
             bot_token,
             channel,
-            "Conversation reset! Starting fresh.",
+            "Conversation reset. Starting fresh — what's up?",
         )
         .await;
+        return;
+    }
+
+    if trimmed.eq_ignore_ascii_case("/help") {
+        let help = "*flacoAi commands*\n\
+            `/reset` or `/clear` — wipe this conversation and start fresh\n\
+            `/status` — model + active conversation count\n\
+            `/help` — this message\n\
+            Anything else — just talk to me normally.";
+        send_channel_message(http, bot_token, channel, help).await;
         return;
     }
 

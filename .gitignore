@@ -8,6 +8,8 @@ build/
 archive/
 .omx/
 .clawd-agents/
+.flacoai-agents/
+rust/.flacoai-agents/
 
 # Rust build artifacts
 rust/target/

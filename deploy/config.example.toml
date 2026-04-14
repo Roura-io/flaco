@@ -1,0 +1,49 @@
+# flacoAi — example configuration
+#
+# Copy to /opt/homebrew/etc/flaco/config.toml and edit.
+# Environment variables override any field here:
+#   FLACO_DB_PATH        → paths.db
+#   FLACO_WEB_PORT       → server.web_port
+#   FLACO_OLLAMA_URL     → ollama.base_url
+#   FLACO_MODEL          → ollama.default_model + models.default
+#   FLACO_TIER           → tools.tier
+
+[paths]
+# SQLite file used by flaco-core::memory.
+db = "/Users/roura.io.server/infra/flaco.db"
+# Directory where generated .shortcut files are written.
+shortcuts_dir = "/Users/roura.io.server/Downloads/flaco-shortcuts"
+# whisper.cpp model for voice transcription.
+whisper_model = "/Users/roura.io.server/infra/whisper-models/ggml-base.en.bin"
+# Structured log directory. launchd also writes stdout/stderr here.
+log_dir = "/Users/roura.io.server/Library/Logs/flaco"
+
+[server]
+web_port = 3033
+bind_addr = "0.0.0.0"
+
+[ollama]
+base_url = "http://127.0.0.1:11434"
+default_model = "qwen3:32b-q8_0"
+
+[backup]
+# flaco-backup.sh writes VACUUM INTO snapshots here daily at 03:00.
+directory = "/Users/roura.io.server/Documents/flaco-backups"
+# Days of retention — 0 disables pruning.
+retention_days = 30
+
+[tools]
+# "chris" → every tool available (Jira, GitHub, Slack, Scaffold).
+# "home"  → the same, less destructive defaults.
+# "default" → free-only tools, no credentials required.
+tier = "chris"
+# Optional tools this operator has explicitly opted into.
+optional_enabled = []
+
+[models]
+# Default chat model used when no router rule fires.
+default = "qwen3:32b-q8_0"
+# SwiftUI / architecture specialist — the LoRA from hackathon 3.
+swift = "flaco-custom:7b"
+# General coder model for non-Swift code questions.
+coder = "qwen3-coder:30b"
