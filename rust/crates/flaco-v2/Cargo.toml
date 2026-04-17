@@ -1,0 +1,24 @@
+[package]
+name = "flaco-v2"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "flaco-v2"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+flaco-config = { path = "../flaco-config" }
+flaco-core = { path = "../flaco-core" }
+# flaco-web dropped 2026-04-14 — elGordo's decision to simplify scope to TUI + Slack only
+flaco-slack-v2 = { path = "../flaco-slack-v2" }
+flaco-tui-v2 = { path = "../flaco-tui-v2" }
+serde_json.workspace = true
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

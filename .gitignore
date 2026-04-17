@@ -1,0 +1,33 @@
+target/
+data/flacoai.log
+data/.env
+data/flaco.db*
+data/vet-decisions.jsonl
+data/backups/
+*.egg-info/
+__pycache__/
+.DS_Store
+
+# Python
+*.pyc
+dist/
+build/
+.venv/
+
+# Legacy / archive
+archive/
+.omx/
+.clawd-agents/
+.flacoai-agents/
+rust/.flacoai-agents/
+
+# Rust build artifacts (also covered by target/ above)
+rust/target/
+
+# Claude Code local artifacts
+.claude/settings.local.json
+.claude/sessions/
+
+# Environment / secrets
+.env
+*.flaco_history

@@ -1,0 +1,33 @@
+[package]
+name = "flaco-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "flacoai"
+path = "src/main.rs"
+
+[[bin]]
+name = "flacoai-dev"
+path = "src/main.rs"
+
+[dependencies]
+api = { path = "../api" }
+commands = { path = "../commands" }
+compat-harness = { path = "../compat-harness" }
+crossterm = "0.28"
+integrations = { path = "../integrations" }
+model-intel = { path = "../model-intel" }
+pulldown-cmark = "0.13"
+rustyline = "15"
+runtime = { path = "../runtime" }
+plugins = { path = "../plugins" }
+serde_json.workspace = true
+syntect = "5"
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+tools = { path = "../tools" }
+
+[lints]
+workspace = true

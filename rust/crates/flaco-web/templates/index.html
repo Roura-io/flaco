@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="flacoAi">
+  <meta name="theme-color" content="#0a0b0f">
+  <meta name="format-detection" content="telephone=no">
+  <title>flacoAi · powered by Roura.io</title>
+  <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg: #0a0b0f;
+      --bg-grad-1: #0e1117;
+      --bg-grad-2: #0a0b0f;
+      --panel: #12151b;
+      --panel-2: #1a1e27;
+      --border: #222834;
+      --border-strong: #2c3342;
+      --fg: #ecedf2;
+      --muted: #8a92a3;
+      --accent: #8b6bff;
+      --accent-soft: rgba(139, 107, 255, 0.15);
+      --accent-2: #3ecf8e;
+      --err: #ff6b6b;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; color: var(--fg);
+      background: radial-gradient(1200px 600px at 20% -10%, #161b26 0%, var(--bg) 60%);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    body {
+      display: grid;
+      grid-template-columns: 260px 1fr 300px;
+      grid-template-rows: 64px 1fr;
+      grid-template-areas: "hdr hdr hdr" "side main right";
+      min-height: 100vh;
+    }
+
+    /* ---------- Header ---------- */
+    header {
+      grid-area: hdr;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 24px;
+      background: linear-gradient(180deg, #13171f 0%, #0e1117 100%);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+    }
+    header .brand { display: flex; align-items: center; gap: 14px; }
+    header .mark {
+      width: 30px; height: 30px; border-radius: 9px;
+      background: linear-gradient(135deg, #8b6bff 0%, #3ecf8e 100%);
+      box-shadow: 0 4px 18px rgba(139, 107, 255, 0.35);
+      display: grid; place-items: center;
+      font-weight: 800; color: white; font-size: 15px; letter-spacing: -0.5px;
+    }
+    header .wordmark { display: flex; flex-direction: column; line-height: 1; }
+    header .wordmark .name {
+      font-weight: 700; font-size: 18px; letter-spacing: -0.4px;
+      background: linear-gradient(90deg, #ecedf2 0%, #b8afff 100%);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    header .wordmark .tagline { font-size: 11px; color: var(--muted); margin-top: 3px; letter-spacing: 0.3px; }
+    header .meta { display: flex; gap: 8px; align-items: center; }
+    header .meta .chip-s {
+      font-size: 11px; color: var(--muted);
+      background: var(--panel-2); border: 1px solid var(--border);
+      padding: 5px 10px; border-radius: 999px;
+    }
+    header .meta .chip-s b { color: var(--fg); font-weight: 600; }
+    header .meta .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-2); display: inline-block; margin-right: 6px; box-shadow: 0 0 8px rgba(62, 207, 142, 0.6); }
+
+    /* ---------- Sidebars ---------- */
+    aside.side { grid-area: side; background: var(--panel); border-right: 1px solid var(--border); padding: 18px 14px; overflow-y: auto; }
+    aside.right { grid-area: right; background: var(--panel); border-left: 1px solid var(--border); padding: 18px 14px; overflow-y: auto; }
+    main { grid-area: main; padding: 24px 28px; overflow-y: auto; display: flex; flex-direction: column; min-height: 0; }
+
+    h3 { margin: 0 0 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); font-weight: 600; }
+
+    /* ---------- View nav (segmented) ---------- */
+    .nav { display: flex; flex-direction: column; gap: 4px; margin-bottom: 24px; }
+    .nav button {
+      display: flex; align-items: center; gap: 10px;
+      background: transparent; color: var(--fg);
+      border: 1px solid transparent; border-radius: 10px;
+      padding: 10px 12px; font-size: 13px; font-weight: 500; text-align: left;
+      width: 100%; cursor: pointer; transition: all 0.12s ease;
+    }
+    .nav button:hover { background: var(--panel-2); }
+    .nav button.active {
+      background: var(--accent-soft);
+      color: var(--fg);
+      border-color: rgba(139, 107, 255, 0.35);
+      box-shadow: 0 0 0 1px rgba(139, 107, 255, 0.15) inset;
+    }
+    .nav button .ico { width: 18px; display: inline-block; text-align: center; font-size: 14px; }
+    .nav button .sub { display: block; font-size: 10px; color: var(--muted); margin-top: 1px; letter-spacing: 0.2px; text-transform: uppercase; }
+
+    .tool-section { margin-bottom: 22px; }
+
+    /* ---------- Forms ---------- */
+    form.row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+    input[type=text], textarea {
+      flex: 1; min-width: 0;
+      background: var(--panel-2); color: var(--fg);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 11px 14px; font-size: 14px; font-family: inherit;
+      caret-color: var(--accent);
+      transition: border-color 0.12s ease, box-shadow 0.12s ease;
+    }
+    input[type=text]:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(139, 107, 255, 0.12);
+    }
+    textarea { min-height: 80px; resize: vertical; }
+    button {
+      background: var(--accent); color: white; border: 0; border-radius: 10px;
+      padding: 11px 18px; font-weight: 600; font-size: 14px; cursor: pointer;
+      transition: filter 0.12s ease;
+    }
+    button:hover { filter: brightness(1.08); }
+    button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+    button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ---------- Messages ---------- */
+    #chat-log, #brief-out, #research-out, #shortcut-out, #scaffold-out { display: flex; flex-direction: column; gap: 12px; }
+    .msg { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+    .msg.user { border-left: 3px solid var(--accent-2); }
+    .msg.flaco { border-left: 3px solid var(--accent); }
+    .msg.tool { border-left: 3px solid #4a5568; background: #0d1016; padding: 10px 14px; }
+    .msg.tool summary { list-style: none; cursor: pointer; color: var(--muted); font-size: 11px; }
+    .msg.tool summary::-webkit-details-marker { display: none; }
+    .msg.tool summary b { display: inline; font-size: 11px; color: #3ecf8e; letter-spacing: 0.4px; margin-right: 10px; }
+    .msg.tool .tool-preview { font-family: "SF Mono", Menlo, monospace; font-size: 11px; color: var(--muted); }
+    .msg.tool .tool-out { margin: 8px 0 0; font-size: 11px; color: var(--muted); background: var(--bg); padding: 8px 10px; border-radius: 6px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+    .msg.err { border-left: 3px solid var(--err); color: var(--err); }
+    .msg b { display: block; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 6px; font-weight: 600; }
+    .md { font-size: 14px; line-height: 1.6; }
+    .md p { margin: 8px 0; }
+    .md p:first-child { margin-top: 0; }
+    .md p:last-child { margin-bottom: 0; }
+    .md strong { color: #ffffff; font-weight: 600; }
+    .md em { color: #d6d4f5; }
+    .md code {
+      background: var(--panel-2); padding: 2px 6px; border-radius: 4px;
+      font-size: 12.5px; color: #b3f0c5; border: 1px solid var(--border);
+    }
+    .md pre {
+      background: #0a0c11; padding: 12px 14px; border-radius: 8px;
+      overflow-x: auto; border: 1px solid var(--border);
+      font-size: 12.5px; line-height: 1.5;
+    }
+    .md pre code { background: transparent; border: 0; padding: 0; color: inherit; }
+    .md a { color: var(--accent); text-decoration: none; }
+    .md a:hover { text-decoration: underline; }
+    .md h1 { font-size: 18px; margin: 16px 0 8px; font-weight: 700; }
+    .md h2 { font-size: 14px; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--accent); font-weight: 700; }
+    .md h3 { font-size: 13px; margin: 12px 0 6px; color: var(--fg); font-weight: 600; }
+    .md ul, .md ol { margin: 8px 0; padding-left: 22px; }
+    .md li { margin: 3px 0; }
+    .md li::marker { color: var(--muted); }
+    .md blockquote { margin: 8px 0; padding: 6px 12px; border-left: 3px solid var(--accent); color: var(--muted); background: var(--panel-2); border-radius: 4px; }
+    .md hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
+    .md table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+    .md th, .md td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+    .md th { background: var(--panel-2); color: var(--fg); }
+
+    .cites { list-style: none; padding: 0; margin: 12px 0 0; border-top: 1px solid var(--border); padding-top: 10px; }
+    .cites li { padding: 6px 0; font-size: 13px; }
+    .cites a { color: var(--accent); text-decoration: none; }
+    .cites a:hover { text-decoration: underline; }
+    .cites .snip { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+    .mems, .convs { list-style: none; padding: 0; margin: 0; }
+    .mems li, .convs li { padding: 8px 0; font-size: 12px; border-bottom: 1px solid var(--border); line-height: 1.45; }
+    .mems .kind { display: inline-block; font-size: 9px; text-transform: uppercase; padding: 2px 6px; background: var(--panel-2); border-radius: 4px; margin-right: 6px; color: var(--muted); }
+
+    /* Conversation list — lighter, more readable links */
+    .convs li { padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .convs a {
+      display: block; text-decoration: none;
+      color: #c9c5ff; font-size: 12px; line-height: 1.35;
+      padding: 4px 2px; border-radius: 4px;
+      transition: color 0.12s ease, background 0.12s ease;
+    }
+    .convs a:hover { color: #ffffff; background: var(--panel-2); }
+    .convs a b { color: #ecedf2; font-weight: 600; display: block; margin-bottom: 2px; }
+    .convs .meta { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
+
+    /* Tool log — one line per tool, click to expand */
+    .tools { list-style: none; padding: 0; margin: 0; }
+    .tools li { border-bottom: 1px solid var(--border); }
+    .tools details > summary {
+      list-style: none; cursor: pointer;
+      padding: 8px 4px;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .tools details > summary::-webkit-details-marker { display: none; }
+    .tools details[open] > summary { background: var(--panel-2); }
+    .tl-row { display: flex; align-items: center; justify-content: space-between; }
+    .tools code { background: var(--panel-2); padding: 2px 6px; border-radius: 4px; color: var(--accent-2); font-size: 12px; }
+    .tl-count { font-size: 10px; color: var(--muted); background: var(--panel-2); padding: 2px 6px; border-radius: 10px; }
+    .tl-sub { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
+    .tl-recent { padding: 6px 10px 10px; background: var(--panel-2); }
+    .tl-args { margin: 4px 0; padding: 6px 8px; font-size: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--muted); white-space: pre-wrap; word-break: break-all; }
+    .empty { color: var(--muted); font-size: 12px; font-style: italic; }
+
+    /* Collapsible sections in sidebars */
+    .collapsible > summary { list-style: none; cursor: pointer; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; padding: 6px 0; display: flex; align-items: center; justify-content: space-between; }
+    .collapsible > summary::-webkit-details-marker { display: none; }
+    .collapsible > summary:hover { color: var(--fg); }
+    .collapsible > summary .caret { transition: transform 0.15s ease; display: inline-block; font-size: 9px; color: var(--muted); }
+    .collapsible[open] > summary .caret { transform: rotate(90deg); }
+
+    .htmx-indicator { color: var(--muted); font-size: 12px; margin-left: 10px; }
+    .htmx-request .htmx-indicator { display: inline-block; }
+    .htmx-indicator { display: none; }
+
+    /* ---------- Responsive: iPad + phone ---------- */
+    .drawer-toggle, .drawer-close, .drawer-backdrop { display: none; }
+
+    @media (max-width: 1180px) {
+      body {
+        grid-template-columns: 240px 1fr;
+        grid-template-areas: "hdr hdr" "side main";
+      }
+      aside.right {
+        position: fixed; top: 0; right: 0; bottom: 0; width: 320px;
+        max-width: 86vw; z-index: 40;
+        transform: translateX(100%); transition: transform 0.2s ease;
+        box-shadow: -20px 0 40px rgba(0,0,0,0.4);
+      }
+      body.drawer-open aside.right { transform: translateX(0); }
+      body.drawer-open .drawer-backdrop {
+        display: block; position: fixed; inset: 0;
+        background: rgba(0,0,0,0.5); z-index: 30;
+      }
+      .drawer-toggle {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: var(--panel-2); color: var(--fg);
+        border: 1px solid var(--border); border-radius: 999px;
+        padding: 6px 12px; font-size: 12px; cursor: pointer;
+      }
+      .drawer-close {
+        display: inline-block;
+        background: transparent; border: 0; color: var(--muted);
+        font-size: 22px; cursor: pointer; padding: 0 4px;
+      }
+    }
+
+    @media (max-width: 820px) {
+      body {
+        grid-template-columns: 1fr;
+        grid-template-rows: 64px auto 1fr;
+        grid-template-areas: "hdr" "side" "main";
+      }
+      aside.side {
+        border-right: 0; border-bottom: 1px solid var(--border);
+        padding: 10px 12px; max-height: none;
+      }
+      aside.side .tool-section { margin-bottom: 10px; }
+      aside.side h3 { display: none; }
+      .nav {
+        flex-direction: row; gap: 4px; overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 4px; margin-bottom: 6px;
+      }
+      .nav button {
+        flex: 0 0 auto; white-space: nowrap;
+        padding: 8px 12px; font-size: 13px;
+        border-radius: 999px;
+      }
+      .nav button .sub { display: none; }
+      aside.side .tool-section:nth-child(2) { display: none; }
+      main { padding: 16px; }
+      .view-header h2 { font-size: 18px; }
+      header { padding: 0 14px; }
+      header .wordmark .tagline { display: none; }
+      header .meta .chip-s:not(:first-child) { display: none; }
+    }
+
+    @media (max-width: 520px) {
+      header .meta { display: none; }
+      form.row { flex-direction: column; align-items: stretch; }
+      form.row button, form.row input[type=text] { width: 100%; }
+      main { padding: 12px; }
+      .msg { padding: 12px 14px; border-radius: 10px; }
+    }
+
+    @supports (padding: max(0px)) {
+      header {
+        padding-left: max(14px, env(safe-area-inset-left));
+        padding-right: max(14px, env(safe-area-inset-right));
+      }
+      main {
+        padding-left: max(16px, env(safe-area-inset-left));
+        padding-right: max(16px, env(safe-area-inset-right));
+        padding-bottom: max(16px, env(safe-area-inset-bottom));
+      }
+    }
+
+    @media (hover: none) and (pointer: coarse) {
+      button, .nav button, .chip { min-height: 40px; }
+      input[type=text] { font-size: 16px; padding: 12px 14px; }
+    }
+
+    /* ---------- View switching ---------- */
+    .view { display: none; flex-direction: column; gap: 14px; }
+    .view.active { display: flex; }
+    .view-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+    .view-header h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.2px; }
+    .view-header .hint { color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="mark">f</div>
+      <div class="wordmark">
+        <div class="name">flacoAi</div>
+        <div class="tagline">powered by Roura.io · one brain, three surfaces</div>
+      </div>
+    </div>
+    <div class="meta">
+      <span class="chip-s"><span class="dot"></span><b>online</b></span>
+      <span class="chip-s">local · ollama</span>
+      <span class="chip-s" id="model-chip">qwen3</span>
+      <button class="drawer-toggle" id="drawer-toggle" aria-label="Open tools and memory">
+        ⚙ tools
+      </button>
+    </div>
+  </header>
+  <div class="drawer-backdrop" id="drawer-backdrop"></div>
+
+  <aside class="side">
+    <div class="tool-section">
+      <h3>Workspace</h3>
+      <nav class="nav" id="view-nav">
+        <button data-view="chat" class="active"><span class="ico">💬</span> Chat <span class="sub">unified memory</span></button>
+        <button data-view="brief"><span class="ico">☀</span> Morning Brief <span class="sub">jira + memory</span></button>
+        <button data-view="research"><span class="ico">🔎</span> Research <span class="sub">web + citations</span></button>
+        <button data-view="shortcut"><span class="ico">⚡</span> Siri Shortcut <span class="sub">english → .shortcut</span></button>
+        <button data-view="scaffold"><span class="ico">🧱</span> Code Scaffold <span class="sub">jira + git branch</span></button>
+      </nav>
+    </div>
+
+    <div class="tool-section">
+      <h3>Recent conversations</h3>
+      <div id="conv-list" hx-get="/conversations" hx-trigger="load, every 15s" hx-swap="innerHTML">
+        <em style="color:var(--muted);font-size:12px">loading…</em>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <!-- CHAT VIEW -->
+    <section class="view active" id="view-chat">
+      <div class="view-header">
+        <h2>Chat</h2>
+        <span class="hint">memory is shared with Slack, TUI, and CLI</span>
+      </div>
+      <form id="chat-form" class="row" hx-post="/chat" hx-target="#chat-log" hx-swap="beforeend" hx-on::after-request="this.reset();document.getElementById('chat-input').focus();">
+        <input id="chat-input" type="text" name="message" placeholder="Ask flaco anything…" autocomplete="off" autofocus>
+        <button type="submit">Send</button>
+        <button type="button" class="ghost" hx-post="/new" hx-target="#chat-log" hx-swap="innerHTML">New</button>
+        <span class="htmx-indicator">thinking…</span>
+      </form>
+      <div id="chat-log"></div>
+    </section>
+
+    <!-- BRIEF VIEW -->
+    <section class="view" id="view-brief">
+      <div class="view-header">
+        <h2>Morning Brief</h2>
+        <span class="hint">synthesized from your memory + open Jira tickets</span>
+      </div>
+      <form class="row" hx-post="/brief" hx-target="#brief-out" hx-swap="innerHTML">
+        <button type="submit">Generate today's brief</button>
+        <span class="htmx-indicator">thinking…</span>
+      </form>
+      <div id="brief-out"></div>
+    </section>
+
+    <!-- RESEARCH VIEW -->
+    <section class="view" id="view-research">
+      <div class="view-header">
+        <h2>Research</h2>
+        <span class="hint">web search → fetch top results → local summary with numbered citations</span>
+      </div>
+      <form class="row" hx-post="/research" hx-target="#research-out" hx-swap="innerHTML">
+        <input id="research-topic" type="text" name="topic" placeholder="e.g. What are the best Rust web frameworks in 2026?">
+        <button type="submit">Research</button>
+        <span class="htmx-indicator">searching…</span>
+      </form>
+      <div id="research-out"></div>
+    </section>
+
+    <!-- SHORTCUT VIEW -->
+    <section class="view" id="view-shortcut">
+      <div class="view-header">
+        <h2>Siri Shortcut Generator</h2>
+        <span class="hint">plain English → real <code>.shortcut</code> plist, ready to AirDrop</span>
+      </div>
+      <form class="row" hx-post="/shortcut" hx-target="#shortcut-out" hx-swap="innerHTML">
+        <input id="shortcut-name" type="text" name="name" placeholder="Shortcut name">
+        <input type="text" name="description" placeholder="What should it do?">
+        <button type="submit">Generate</button>
+      </form>
+      <div id="shortcut-out"></div>
+    </section>
+
+    <!-- SCAFFOLD VIEW -->
+    <section class="view" id="view-scaffold">
+      <div class="view-header">
+        <h2>Code Scaffold</h2>
+        <span class="hint">idea → Jira epic + stories + local git branch + first commit</span>
+      </div>
+      <form class="row" hx-post="/scaffold" hx-target="#scaffold-out" hx-swap="innerHTML">
+        <input id="scaffold-idea" type="text" name="idea" placeholder="I want to build…">
+        <input type="text" name="project_key" value="FLACO" placeholder="Jira project key">
+        <button type="submit">Scaffold</button>
+      </form>
+      <div id="scaffold-out"></div>
+    </section>
+  </main>
+
+  <aside class="right" id="right-drawer">
+    <div class="tool-section" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <h3 style="margin:0">Tools &amp; memory</h3>
+      <button class="drawer-close" id="drawer-close" aria-label="Close">×</button>
+    </div>
+    <div class="tool-section">
+      <h3>Tool log</h3>
+      <div id="tool-log" hx-get="/tool-log" hx-trigger="load, every 10s" hx-swap="innerHTML">
+        <em style="color:var(--muted);font-size:12px">loading…</em>
+      </div>
+    </div>
+
+    <div class="tool-section">
+      <details class="collapsible">
+        <summary>Memory <span class="caret">▸</span></summary>
+        <form class="row" style="margin-top:10px" hx-post="/memories" hx-target="#mem-list" hx-swap="innerHTML" hx-on::after-request="this.reset()">
+          <input type="text" name="content" placeholder="Remember that…">
+          <button type="submit">+</button>
+        </form>
+        <div id="mem-list" hx-get="/memories" hx-trigger="load, every 20s" hx-swap="innerHTML">
+          <em style="color:var(--muted);font-size:12px">loading…</em>
+        </div>
+      </details>
+    </div>
+  </aside>
+
+  <script>
+    (function() {
+      const nav = document.getElementById('view-nav');
+      const buttons = nav.querySelectorAll('button[data-view]');
+      const views = document.querySelectorAll('main .view');
+      function show(name) {
+        buttons.forEach(b => b.classList.toggle('active', b.dataset.view === name));
+        views.forEach(v => v.classList.toggle('active', v.id === 'view-' + name));
+        // Focus first text input in the active view for fast typing.
+        const active = document.getElementById('view-' + name);
+        const firstInput = active && active.querySelector('input[type=text]');
+        if (firstInput) setTimeout(() => firstInput.focus(), 20);
+      }
+      buttons.forEach(b => b.addEventListener('click', () => show(b.dataset.view)));
+      // Hash routing so refresh keeps you in place: #chat, #research, …
+      const fromHash = (location.hash || '').replace('#', '');
+      if (fromHash && document.getElementById('view-' + fromHash)) show(fromHash);
+      window.addEventListener('hashchange', () => {
+        const n = (location.hash || '').replace('#', '');
+        if (document.getElementById('view-' + n)) show(n);
+      });
+      buttons.forEach(b => b.addEventListener('click', () => { history.replaceState(null, '', '#' + b.dataset.view); }));
+      // Also populate the model chip from /status if available.
+      fetch('/status').then(r => r.json()).then(j => {
+        const m = document.getElementById('model-chip');
+        if (m && j && j.model) m.textContent = j.model;
+      }).catch(() => {});
+
+      // Right-sidebar drawer toggle (iPad and below).
+      const drawerToggle = document.getElementById('drawer-toggle');
+      const drawerClose  = document.getElementById('drawer-close');
+      const drawerBack   = document.getElementById('drawer-backdrop');
+      function drawerOpen()  { document.body.classList.add('drawer-open'); }
+      function drawerClosed(){ document.body.classList.remove('drawer-open'); }
+      if (drawerToggle) drawerToggle.addEventListener('click', () => {
+        document.body.classList.toggle('drawer-open');
+      });
+      if (drawerClose) drawerClose.addEventListener('click', drawerClosed);
+      if (drawerBack)  drawerBack.addEventListener('click', drawerClosed);
+      window.addEventListener('keydown', (e) => { if (e.key === 'Escape') drawerClosed(); });
+    })();
+  </script>
+</body>
+</html>

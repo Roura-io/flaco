@@ -1,0 +1,21 @@
+[package]
+name = "flaco-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.8", features = ["macros"] }
+pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+flaco-core = { path = "../flaco-core" }
+futures-util = "0.3"
+html-escape = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+tracing = "0.1"
