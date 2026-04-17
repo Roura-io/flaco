@@ -1,0 +1,14 @@
+{
+  "agentId": "agent-1776121908154338000",
+  "name": "ship-audit",
+  "description": "Review the branch",
+  "subagentType": "general-purpose",
+  "model": "claude-opus-4-6",
+  "status": "failed",
+  "outputFile": "/Users/roura.io/Documents/dev/flacoAi/rust/.flacoai-agents/agent-1776121908154338000.md",
+  "manifestFile": "/Users/roura.io/Documents/dev/flacoAi/rust/.flacoai-agents/agent-1776121908154338000.json",
+  "createdAt": "1776121908",
+  "startedAt": "1776121908",
+  "completedAt": "1776121908",
+  "error": "missing Anthropic credentials; export ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY before calling the Anthropic API"
+}

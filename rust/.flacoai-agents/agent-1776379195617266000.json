@@ -1,0 +1,14 @@
+{
+  "agentId": "agent-1776379195617266000",
+  "name": "verify-the-branch",
+  "description": "Verify the branch",
+  "subagentType": "Explore",
+  "model": "claude-opus-4-6",
+  "status": "failed",
+  "outputFile": "/Users/roura.io/Documents/dev/flacoAi/rust/.flacoai-agents/agent-1776379195617266000.md",
+  "manifestFile": "/Users/roura.io/Documents/dev/flacoAi/rust/.flacoai-agents/agent-1776379195617266000.json",
+  "createdAt": "1776379195",
+  "startedAt": "1776379195",
+  "completedAt": "1776379195",
+  "error": "missing Anthropic credentials; export ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY before calling the Anthropic API"
+}
