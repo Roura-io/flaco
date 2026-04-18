@@ -477,6 +477,8 @@ fn get_simple_system_section() -> String {
 
 fn get_simple_doing_tasks_section() -> String {
     let items = prepend_bullets(vec![
+        "If the user's message is conversational — a greeting (\"hi\", \"hey\", \"how are you\"), small talk, thanks, or a direct meta-question about you or the current session — reply in plain text. Do NOT call any tool (bash, read, glob, grep, web, etc.) on conversational turns. Tool output is noise when the user just said hello.".to_string(),
+        "Only reach for a tool once the user has made a concrete engineering request that requires real information from the filesystem, the network, or a command. If you are unsure whether a tool call is warranted, err on the side of answering in plain text and ask a clarifying question.".to_string(),
         "Read relevant code before changing it and keep changes tightly scoped to the request.".to_string(),
         "Do not add speculative abstractions, compatibility shims, or unrelated cleanup.".to_string(),
         "Do not create files unless they are required to complete the task.".to_string(),
