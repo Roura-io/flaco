@@ -85,10 +85,13 @@ impl Spinner {
         out: &mut impl Write,
     ) -> io::Result<()> {
         self.frame_index = 0;
+        // Always start the marker on a fresh line. MoveToColumn+Clear only
+        // wipes the last physical row of wrapped streamed output, so it can
+        // overlay the tail of the assistant's message. A plain leading
+        // newline guarantees the marker lands below whatever streamed.
         execute!(
             out,
-            MoveToColumn(0),
-            Clear(ClearType::CurrentLine),
+            Print("\n"),
             SetForegroundColor(theme.spinner_done),
             Print(format!("✔ {label}\n")),
             ResetColor
@@ -105,8 +108,7 @@ impl Spinner {
         self.frame_index = 0;
         execute!(
             out,
-            MoveToColumn(0),
-            Clear(ClearType::CurrentLine),
+            Print("\n"),
             SetForegroundColor(theme.spinner_failed),
             Print(format!("✘ {label}\n")),
             ResetColor
