@@ -15,6 +15,7 @@ mod prompt;
 mod remote;
 pub mod sandbox;
 mod session;
+pub mod tool_vet;
 mod usage;
 
 pub use lsp::{

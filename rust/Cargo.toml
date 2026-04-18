@@ -4,7 +4,7 @@ exclude = ["crates/flaco-web"]
 resolver = "2"
 
 [workspace.package]
-version = "0.7.3"
+version = "0.8.0"
 edition = "2021"
 license = "MIT"
 authors = ["Christopher J. Roura <cjroura@roura.io>"]

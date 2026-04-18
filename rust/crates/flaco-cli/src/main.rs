@@ -1148,6 +1148,7 @@ impl LiveCli {
             format!("  Directory        {cwd_display}"),
             format!("  Model            {}", self.model),
             format!("  Permissions      {}", self.permission_mode.as_str()),
+            format!("  Vet layer        {}", render_vet_banner()),
             format!("  Session          {}", self.session.id),
             format!("  {}", self.integration_banner),
             format!(
@@ -1172,6 +1173,7 @@ impl LiveCli {
     }
 
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
+        runtime::tool_vet::process_context().set_last_user_message(input);
         let mut spinner = Spinner::new();
         let mut stdout = io::stdout();
         spinner.tick(
@@ -1215,6 +1217,7 @@ impl LiveCli {
     }
 
     fn run_prompt_json(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
+        runtime::tool_vet::process_context().set_last_user_message(input);
         let session = self.runtime.session().clone();
         let mut runtime = build_runtime(
             session,
@@ -2600,6 +2603,24 @@ fn build_system_prompt() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     )?)
 }
 
+fn render_vet_banner() -> String {
+    let config = runtime::tool_vet::process_config();
+    let mode = match config.mode {
+        runtime::tool_vet::VetMode::Off => "off",
+        runtime::tool_vet::VetMode::DestructiveOnly => "destructive",
+        runtime::tool_vet::VetMode::All => "all",
+    };
+    if matches!(config.mode, runtime::tool_vet::VetMode::Off) {
+        return format!("{mode} (FLACO_VET_TOOLS)");
+    }
+    let reachable = if config.api_key.is_some() {
+        "reachable"
+    } else {
+        "ANTHROPIC_API_KEY unset → fail-open"
+    };
+    format!("{} · {} · {}", mode, config.model, reachable)
+}
+
 fn build_runtime_plugin_state(
 ) -> Result<(runtime::RuntimeFeatureConfig, GlobalToolRegistry), Box<dyn std::error::Error>> {
     let cwd = env::current_dir()?;
@@ -3917,6 +3938,33 @@ impl ToolExecutor for CliToolExecutor {
         }
         let value = serde_json::from_str(input)
             .map_err(|error| ToolError::new(format!("invalid tool input JSON: {error}")))?;
+
+        // Pre-tool-call vet. This is the 80/20 local-to-Claude split applied
+        // at the *tool-call* boundary rather than post-hoc on the final text
+        // reply. Fails open: if Claude is unreachable or disabled, the call
+        // proceeds. Only explicit DENY blocks execution.
+        let vet_config = runtime::tool_vet::process_config();
+        if vet_config.is_enabled() {
+            let user_message = runtime::tool_vet::process_context()
+                .last_user_message()
+                .unwrap_or_default();
+            let roll = runtime::tool_vet::deterministic_roll(tool_name, &value);
+            if runtime::tool_vet::should_vet(vet_config, tool_name, &value, roll) {
+                let decision =
+                    runtime::tool_vet::vet_tool_call(vet_config, &user_message, tool_name, &value);
+                if let Some(deny_message) = decision.deny_message() {
+                    if self.emit_output {
+                        let markdown =
+                            format_tool_result(tool_name, &deny_message, true);
+                        let _ = self
+                            .renderer
+                            .stream_markdown(&markdown, &mut io::stdout());
+                    }
+                    return Err(ToolError::new(deny_message));
+                }
+            }
+        }
+
         match self.tool_registry.execute(tool_name, &value) {
             Ok(output) => {
                 if self.emit_output {
