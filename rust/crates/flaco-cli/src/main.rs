@@ -1132,7 +1132,7 @@ impl LiveCli {
             .is_some_and(|path| path.join("FLACOAI.md").is_file());
         let mut lines = vec![
             format!(
-                "{} {}",
+                "{} {} {}",
                 if color {
                     "\x1b[1;38;5;45m🤖 flacoAi\x1b[0m"
                 } else {
@@ -1142,6 +1142,14 @@ impl LiveCli {
                     "\x1b[2m· ready\x1b[0m"
                 } else {
                     "· ready"
+                },
+                if color {
+                    format!(
+                        "\x1b[38;5;244m\u{2022}\x1b[0m \x1b[1;38;5;183mv{}\x1b[0m",
+                        env!("CARGO_PKG_VERSION")
+                    )
+                } else {
+                    format!("• v{}", env!("CARGO_PKG_VERSION"))
                 }
             ),
             format!("  Workspace        {workspace_summary}"),
