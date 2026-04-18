@@ -15,6 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 api = { path = "../api" }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 commands = { path = "../commands" }
 compat-harness = { path = "../compat-harness" }
 crossterm = "0.28"

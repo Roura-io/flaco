@@ -1,6 +1,7 @@
 mod init;
 mod input;
 mod render;
+mod spinner;
 
 use std::collections::BTreeSet;
 use std::env;
@@ -54,9 +55,20 @@ fn default_model() -> String {
 fn max_tokens_for_model(model: &str) -> u32 {
     api::max_tokens_for_model(model)
 }
+/// Build-time stamp only — do **not** feed this to the model as "today".
+/// Use `today_iso()` for that. Frozen at compile time; the model needs
+/// the real current date or it reasons about stale time.
 const DEFAULT_DATE: &str = "2026-03-31";
 const DEFAULT_OAUTH_CALLBACK_PORT: u16 = 4545;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Today's date in ISO 8601 (YYYY-MM-DD), computed in the local timezone
+/// at call time. Used anywhere we hand a "current date" to the runtime
+/// or system prompt so the model reasons against real time, not a stale
+/// compile-time stamp.
+fn today_iso() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
+}
 const BUILD_TARGET: Option<&str> = option_env!("TARGET");
 const GIT_SHA: Option<&str> = option_env!("GIT_SHA");
 const INTERNAL_PROGRESS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
@@ -424,7 +436,7 @@ fn filter_tool_specs(
 
 fn parse_system_prompt_args(args: &[String]) -> Result<CliAction, String> {
     let mut cwd = env::current_dir().map_err(|error| error.to_string())?;
-    let mut date = DEFAULT_DATE.to_string();
+    let mut date = today_iso();
     let mut index = 0;
 
     while index < args.len() {
@@ -1182,18 +1194,19 @@ impl LiveCli {
 
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
         runtime::tool_vet::process_context().set_last_user_message(input);
-        let mut spinner = Spinner::new();
+        let mut animated = spinner::start_turn("🦀 Thinking...");
         let mut stdout = io::stdout();
-        spinner.tick(
-            "🦀 Thinking...",
-            TerminalRenderer::new().color_theme(),
-            &mut stdout,
-        )?;
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
         let result = self.runtime.run_turn(input, Some(&mut permission_prompter));
+        // Belt-and-suspenders: the streaming client stops the spinner on
+        // the first text token, but a tool-only turn (no text) never
+        // triggers that path. Stop here unconditionally so the ✔ marker
+        // lands on a clean row.
+        animated.stop();
+        let mut finisher = Spinner::new();
         match result {
             Ok(_) => {
-                spinner.finish(
+                finisher.finish(
                     "✨ Done",
                     TerminalRenderer::new().color_theme(),
                     &mut stdout,
@@ -1203,7 +1216,7 @@ impl LiveCli {
                 Ok(())
             }
             Err(error) => {
-                spinner.fail(
+                finisher.fail(
                     "❌ Request failed",
                     TerminalRenderer::new().color_theme(),
                     &mut stdout,
@@ -2072,7 +2085,7 @@ fn status_context(
     let loader = ConfigLoader::default_for(&cwd);
     let discovered_config_files = loader.discover().len();
     let runtime_config = loader.load()?;
-    let project_context = ProjectContext::discover_with_git(&cwd, DEFAULT_DATE)?;
+    let project_context = ProjectContext::discover_with_git(&cwd, today_iso())?;
     let (project_root, git_branch) =
         parse_git_status_metadata(project_context.git_status.as_deref());
     Ok(StatusContext {
@@ -2232,7 +2245,7 @@ fn render_config_report(section: Option<&str>) -> Result<String, Box<dyn std::er
 
 fn render_memory_report() -> Result<String, Box<dyn std::error::Error>> {
     let cwd = env::current_dir()?;
-    let project_context = ProjectContext::discover(&cwd, DEFAULT_DATE)?;
+    let project_context = ProjectContext::discover(&cwd, today_iso())?;
     let mut lines = vec![format!(
         "Memory
   Working directory {}
@@ -2605,7 +2618,7 @@ fn resolve_export_path(
 fn build_system_prompt() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     Ok(load_system_prompt(
         env::current_dir()?,
-        DEFAULT_DATE,
+        today_iso(),
         env::consts::OS,
         "unknown",
     )?)
@@ -3205,11 +3218,17 @@ impl ApiClient for DefaultRuntimeClient {
                     ApiStreamEvent::ContentBlockDelta(delta) => match delta.delta {
                         ContentBlockDelta::TextDelta { text } => {
                             if !text.is_empty() {
+                                // Stop the animated "Thinking..." spinner
+                                // before the first token lands so it
+                                // doesn't fight with streamed output.
+                                spinner::stop_active();
                                 if let Some(progress_reporter) = &self.progress_reporter {
                                     progress_reporter.mark_text_phase(&text);
                                 }
                                 if let Some(rendered) = markdown_stream.push(&renderer, &text) {
-                                    write!(out, "{rendered}")
+                                    let wrapped =
+                                        render::wrap_ansi_to_terminal(&rendered);
+                                    write!(out, "{wrapped}")
                                         .and_then(|()| out.flush())
                                         .map_err(|error| RuntimeError::new(error.to_string()))?;
                                 }
@@ -3226,11 +3245,15 @@ impl ApiClient for DefaultRuntimeClient {
                     },
                     ApiStreamEvent::ContentBlockStop(_) => {
                         if let Some(rendered) = markdown_stream.flush(&renderer) {
-                            write!(out, "{rendered}")
+                            let wrapped = render::wrap_ansi_to_terminal(&rendered);
+                            write!(out, "{wrapped}")
                                 .and_then(|()| out.flush())
                                 .map_err(|error| RuntimeError::new(error.to_string()))?;
                         }
                         if let Some((id, name, input)) = pending_tool.take() {
+                            // Same deal as TextDelta: stop the animated
+                            // spinner before the tool-call box renders.
+                            spinner::stop_active();
                             if let Some(progress_reporter) = &self.progress_reporter {
                                 progress_reporter.mark_tool_phase(&name, &input);
                             }
@@ -3252,7 +3275,8 @@ impl ApiClient for DefaultRuntimeClient {
                     ApiStreamEvent::MessageStop(_) => {
                         saw_stop = true;
                         if let Some(rendered) = markdown_stream.flush(&renderer) {
-                            write!(out, "{rendered}")
+                            let wrapped = render::wrap_ansi_to_terminal(&rendered);
+                            write!(out, "{wrapped}")
                                 .and_then(|()| out.flush())
                                 .map_err(|error| RuntimeError::new(error.to_string()))?;
                         }

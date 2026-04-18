@@ -1,15 +1,160 @@
 use std::fmt::Write as FmtWrite;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 
-use crossterm::cursor::{MoveToColumn, RestorePosition, SavePosition};
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor, Stylize};
-use crossterm::terminal::{Clear, ClearType};
-use crossterm::{execute, queue};
+use crossterm::execute;
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Theme, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
+
+/// Minimum usable width — under this the wrapper no-ops rather than
+/// mangling the text into one-char-per-line output.
+const MIN_WRAP_WIDTH: usize = 20;
+
+/// Width used when stdout isn't a TTY (piped to a file, subshell, …).
+const NON_TTY_WIDTH: usize = 0;
+
+/// Probe the current terminal width. Returns `0` when stdout isn't a
+/// TTY or when the probe fails — callers treat `0` as "don't wrap".
+#[must_use]
+pub fn current_terminal_width() -> usize {
+    if !io::stdout().is_terminal() {
+        return NON_TTY_WIDTH;
+    }
+    crossterm::terminal::size().map_or(NON_TTY_WIDTH, |(cols, _)| cols as usize)
+}
+
+/// Word-wrap a string that may contain ANSI escape sequences to the given
+/// visible column width. Existing newlines are respected (they reset the
+/// column counter). Words longer than `width` overflow rather than being
+/// broken — better to wrap at the next boundary than to hyphenate.
+///
+/// ANSI CSI sequences (`ESC [ ... <letter>`) and SGR sequences contribute
+/// zero to visible width; any other ESC-prefixed sequence we encounter is
+/// treated the same, which matches terminal behaviour for styling codes.
+#[must_use]
+pub fn wrap_ansi_to_width(text: &str, width: usize) -> String {
+    if width < MIN_WRAP_WIDTH {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + text.len() / width);
+    let mut visible_col: usize = 0;
+    let mut current_word = String::new();
+    let mut current_word_vis: usize = 0;
+    let mut in_esc = false;
+    let mut esc_starts_csi = false;
+
+    let flush_word = |out: &mut String,
+                      visible_col: &mut usize,
+                      current_word: &mut String,
+                      current_word_vis: &mut usize,
+                      width: usize| {
+        if current_word.is_empty() {
+            return;
+        }
+        if *visible_col > 0 && *visible_col + *current_word_vis > width {
+            out.push('\n');
+            *visible_col = 0;
+        }
+        out.push_str(current_word);
+        *visible_col += *current_word_vis;
+        current_word.clear();
+        *current_word_vis = 0;
+    };
+
+    for ch in text.chars() {
+        if in_esc {
+            current_word.push(ch);
+            // CSI sequences end on a byte in range 0x40..=0x7E
+            // (letters/symbols); SGR "m" is the common case. Any other
+            // escape (e.g. "ESC ] 0 ; title BEL") is terminated by an
+            // alphabetic byte in practice for the styles we emit.
+            let terminator = if esc_starts_csi {
+                (0x40..=0x7E).contains(&(ch as u32))
+            } else {
+                ch.is_ascii_alphabetic() || ch == '\x07'
+            };
+            if terminator {
+                in_esc = false;
+                esc_starts_csi = false;
+            }
+            continue;
+        }
+        if ch == '\x1b' {
+            in_esc = true;
+            esc_starts_csi = false;
+            current_word.push(ch);
+            continue;
+        }
+        // Mark CSI when we see the '[' immediately after ESC. Because
+        // we're already past ESC (in_esc was true briefly above) this
+        // branch actually runs the char after ESC — but we handled that
+        // inside the `in_esc` block. So here we only see the '[' when it
+        // follows a prior ESC that already closed. In practice the SGR
+        // sequences we emit are all `ESC [ ... m`; the flag prevents an
+        // isolated `]` from tripping the non-CSI terminator rule above.
+        // Keeping the branch here as a safety net for future styles.
+        if ch == '[' && !current_word.is_empty() && current_word.ends_with('\x1b') {
+            esc_starts_csi = true;
+        }
+
+        if ch == '\n' {
+            flush_word(
+                &mut out,
+                &mut visible_col,
+                &mut current_word,
+                &mut current_word_vis,
+                width,
+            );
+            out.push('\n');
+            visible_col = 0;
+            continue;
+        }
+        if ch == ' ' || ch == '\t' {
+            flush_word(
+                &mut out,
+                &mut visible_col,
+                &mut current_word,
+                &mut current_word_vis,
+                width,
+            );
+            if visible_col + 1 > width {
+                out.push('\n');
+                visible_col = 0;
+            } else {
+                out.push(ch);
+                visible_col += 1;
+            }
+            continue;
+        }
+        current_word.push(ch);
+        current_word_vis += 1;
+    }
+    flush_word(
+        &mut out,
+        &mut visible_col,
+        &mut current_word,
+        &mut current_word_vis,
+        width,
+    );
+    out
+}
+
+/// Convenience: wrap against the current terminal width. No-op when
+/// stdout isn't a TTY or the terminal is too narrow to wrap sanely.
+#[must_use]
+pub fn wrap_ansi_to_terminal(text: &str) -> String {
+    let width = current_terminal_width();
+    if width == 0 {
+        return text.to_string();
+    }
+    // Leave one column of slack so wrapped output doesn't hug the right
+    // edge (matches how most CLIs render prose).
+    let target = width.saturating_sub(1).max(MIN_WRAP_WIDTH);
+    wrap_ansi_to_width(text, target)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColorTheme {
@@ -44,38 +189,16 @@ impl Default for ColorTheme {
     }
 }
 
+/// Completion marker for a turn. Animated frames are handled by the
+/// dedicated `spinner` module; this struct only paints the final ✔/✘
+/// line once `run_turn` returns.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Spinner {
-    frame_index: usize,
-}
+pub struct Spinner;
 
 impl Spinner {
-    const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn tick(
-        &mut self,
-        label: &str,
-        theme: &ColorTheme,
-        out: &mut impl Write,
-    ) -> io::Result<()> {
-        let frame = Self::FRAMES[self.frame_index % Self::FRAMES.len()];
-        self.frame_index += 1;
-        queue!(
-            out,
-            SavePosition,
-            MoveToColumn(0),
-            Clear(ClearType::CurrentLine),
-            SetForegroundColor(theme.spinner_active),
-            Print(format!("{frame} {label}")),
-            ResetColor,
-            RestorePosition
-        )?;
-        out.flush()
+        Self
     }
 
     pub fn finish(
@@ -84,11 +207,10 @@ impl Spinner {
         theme: &ColorTheme,
         out: &mut impl Write,
     ) -> io::Result<()> {
-        self.frame_index = 0;
-        // Always start the marker on a fresh line. MoveToColumn+Clear only
-        // wipes the last physical row of wrapped streamed output, so it can
-        // overlay the tail of the assistant's message. A plain leading
-        // newline guarantees the marker lands below whatever streamed.
+        // Always start the marker on a fresh line. Any cursor-manipulation
+        // scheme would only wipe the last physical row of wrapped output
+        // and risk overlaying the tail of the assistant's message — a
+        // plain leading newline guarantees a clean row for the marker.
         execute!(
             out,
             Print("\n"),
@@ -105,7 +227,6 @@ impl Spinner {
         theme: &ColorTheme,
         out: &mut impl Write,
     ) -> io::Result<()> {
-        self.frame_index = 0;
         execute!(
             out,
             Print("\n"),
@@ -590,7 +711,7 @@ impl TerminalRenderer {
     }
 
     pub fn stream_markdown(&self, markdown: &str, out: &mut impl Write) -> io::Result<()> {
-        let rendered_markdown = self.markdown_to_ansi(markdown);
+        let rendered_markdown = wrap_ansi_to_terminal(&self.markdown_to_ansi(markdown));
         write!(out, "{rendered_markdown}")?;
         if !rendered_markdown.ends_with('\n') {
             writeln!(out)?;
@@ -782,18 +903,91 @@ mod tests {
     }
 
     #[test]
-    fn spinner_advances_frames() {
+    fn wrap_leaves_short_text_alone() {
+        assert_eq!(super::wrap_ansi_to_width("hello world", 40), "hello world");
+    }
+
+    #[test]
+    fn wrap_breaks_on_word_boundary_not_midword() {
+        let input = "the quick brown fox jumps over the lazy dog";
+        let wrapped = super::wrap_ansi_to_width(input, 20);
+        // Every line must end at a word boundary and be ≤ 20 visible chars.
+        for line in wrapped.split('\n') {
+            assert!(
+                line.len() <= 20,
+                "line too long ({}): {line:?}",
+                line.len()
+            );
+            // The wrap never breaks mid-word, so each word is contiguous.
+            // Check: no word from the input is split across a line break.
+        }
+        // Original whitespace-separated words survive intact.
+        for word in input.split_whitespace() {
+            assert!(
+                wrapped.contains(word),
+                "word {word:?} got chopped: {wrapped:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_respects_existing_newlines() {
+        let input = "paragraph one\n\nparagraph two goes here";
+        let wrapped = super::wrap_ansi_to_width(input, 30);
+        assert!(wrapped.contains("paragraph one\n\nparagraph two"));
+    }
+
+    #[test]
+    fn wrap_does_not_count_ansi_toward_width() {
+        // 20-char visible word wrapped with SGR around it — the whole
+        // styled word fits within width 30 despite the escape bytes.
+        let input = "\x1b[1;32mbold-green-word\x1b[0m and plain text";
+        let wrapped = super::wrap_ansi_to_width(input, 30);
+        assert!(wrapped.starts_with("\x1b[1;32mbold-green-word\x1b[0m"));
+    }
+
+    #[test]
+    fn wrap_noops_for_absurdly_narrow_widths() {
+        // Widths below MIN_WRAP_WIDTH return the input unchanged rather
+        // than produce one-char-per-line garbage.
+        let input = "the quick brown fox";
+        assert_eq!(super::wrap_ansi_to_width(input, 3), input);
+    }
+
+    #[test]
+    fn wrap_overflows_words_longer_than_width() {
+        // A single word bigger than the width still emits in full — we
+        // prefer an over-width line to mid-word hyphenation.
+        let input = "supercalifragilisticexpialidocious is long";
+        let wrapped = super::wrap_ansi_to_width(input, 20);
+        assert!(wrapped.contains("supercalifragilisticexpialidocious"));
+    }
+
+    #[test]
+    fn spinner_finish_prefixes_newline_then_marker() {
         let terminal_renderer = TerminalRenderer::new();
         let mut spinner = Spinner::new();
         let mut out = Vec::new();
         spinner
-            .tick("Working", terminal_renderer.color_theme(), &mut out)
-            .expect("tick succeeds");
-        spinner
-            .tick("Working", terminal_renderer.color_theme(), &mut out)
-            .expect("tick succeeds");
-
+            .finish("Done", terminal_renderer.color_theme(), &mut out)
+            .expect("finish succeeds");
         let output = String::from_utf8_lossy(&out);
-        assert!(output.contains("Working"));
+        // Leading newline guarantees the marker never clobbers streamed
+        // output left on the same terminal row.
+        assert!(output.starts_with('\n'));
+        assert!(output.contains("✔ Done"));
+    }
+
+    #[test]
+    fn spinner_fail_prefixes_newline_then_marker() {
+        let terminal_renderer = TerminalRenderer::new();
+        let mut spinner = Spinner::new();
+        let mut out = Vec::new();
+        spinner
+            .fail("Boom", terminal_renderer.color_theme(), &mut out)
+            .expect("fail succeeds");
+        let output = String::from_utf8_lossy(&out);
+        assert!(output.starts_with('\n'));
+        assert!(output.contains("✘ Boom"));
     }
 }
