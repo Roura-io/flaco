@@ -1015,6 +1015,7 @@ fn run_resume_command(
         | SlashCommand::Permissions { .. }
         | SlashCommand::Session { .. }
         | SlashCommand::Plugins { .. }
+        | SlashCommand::Video { .. }
         | SlashCommand::Unknown(_) => Err("unsupported resumed slash command".into()),
     }
 }
@@ -1362,6 +1363,10 @@ impl LiveCli {
             }
             SlashCommand::Skills { args } => {
                 Self::print_skills(args.as_deref())?;
+                false
+            }
+            SlashCommand::Video { topic } => {
+                self.run_video(topic.as_deref())?;
                 false
             }
             SlashCommand::Branch { .. } => {
@@ -1825,6 +1830,132 @@ impl LiveCli {
             path.display(),
             message.trim()
         );
+        Ok(())
+    }
+
+    /// Default webhook for the n8n video-script workflow on the homelab Pi.
+    /// Overridable via `FLACO_VIDEO_WEBHOOK` so /video works from any
+    /// environment (VPN off, different tailnet, local n8n, …).
+    const VIDEO_WEBHOOK_DEFAULT: &'static str = "http://10.0.1.4:5678/webhook/generate-video";
+
+    fn run_video(&mut self, topic: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+        let topic = topic.map(str::trim).filter(|t| !t.is_empty());
+        let webhook = env::var("FLACO_VIDEO_WEBHOOK")
+            .unwrap_or_else(|_| Self::VIDEO_WEBHOOK_DEFAULT.to_string());
+
+        let body = if let Some(t) = topic {
+            json!({ "topic": t }).to_string()
+        } else {
+            "{}".to_string()
+        };
+
+        let label = topic.map_or_else(
+            || "🎬 Writing a video script…".to_string(),
+            |t| format!("🎬 Writing a video script about \"{t}\"…"),
+        );
+        let mut animated = spinner::start_turn(label);
+
+        // Shell out to curl — the runtime crate owns reqwest, we don't need
+        // a second HTTP stack in the CLI. 2 minute timeout matches the
+        // workflow's own Ollama timeout; anything slower is a genuine hang.
+        let output = Command::new("curl")
+            .args([
+                "-sS",
+                "-X",
+                "POST",
+                "-H",
+                "Content-Type: application/json",
+                "-d",
+                &body,
+                "--max-time",
+                "150",
+                &webhook,
+            ])
+            .output();
+        animated.stop();
+
+        let mut stdout = io::stdout();
+        let renderer = TerminalRenderer::new();
+        let mut finisher = Spinner::new();
+
+        let output = match output {
+            Ok(o) => o,
+            Err(e) => {
+                finisher.fail(
+                    &format!("video: curl failed — {e}"),
+                    renderer.color_theme(),
+                    &mut stdout,
+                )?;
+                return Ok(());
+            }
+        };
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            finisher.fail(
+                &format!(
+                    "video: webhook returned non-zero — {}",
+                    stderr.trim().lines().next().unwrap_or("no stderr")
+                ),
+                renderer.color_theme(),
+                &mut stdout,
+            )?;
+            return Ok(());
+        }
+
+        let body_text = String::from_utf8_lossy(&output.stdout);
+        let parsed: serde_json::Value = match serde_json::from_str(&body_text) {
+            Ok(v) => v,
+            Err(e) => {
+                finisher.fail(
+                    &format!("video: could not parse response — {e}"),
+                    renderer.color_theme(),
+                    &mut stdout,
+                )?;
+                return Ok(());
+            }
+        };
+
+        let script = parsed
+            .get("script")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let Some(script) = script else {
+            finisher.fail(
+                "video: response had no script — check n8n execution history for details",
+                renderer.color_theme(),
+                &mut stdout,
+            )?;
+            return Ok(());
+        };
+
+        let topic_used = parsed
+            .get("topic")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_else(|| topic.unwrap_or("(default)"));
+        let scenes = parsed
+            .get("scenes")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let duration = parsed
+            .get("duration")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+
+        let mut header = format!("🎬 Video script — {topic_used}");
+        if scenes > 0 {
+            header.push_str(&format!(" · {scenes} scene{}", if scenes == 1 { "" } else { "s" }));
+        }
+        if !duration.is_empty() {
+            header.push_str(&format!(" · {duration}"));
+        }
+        writeln!(stdout, "\n{header}\n")?;
+        renderer.stream_markdown(script, &mut stdout)?;
+        finisher.finish(
+            "✨ Script generated + posted to #home-general",
+            renderer.color_theme(),
+            &mut stdout,
+        )?;
         Ok(())
     }
 

@@ -297,6 +297,14 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         resume_supported: true,
         category: SlashCommandCategory::Automation,
     },
+    SlashCommandSpec {
+        name: "video",
+        aliases: &[],
+        summary: "Generate a video script via the homelab n8n workflow",
+        argument_hint: Some("[topic]"),
+        resume_supported: false,
+        category: SlashCommandCategory::Automation,
+    },
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -369,6 +377,9 @@ pub enum SlashCommand {
     },
     Skills {
         args: Option<String>,
+    },
+    Video {
+        topic: Option<String>,
     },
     Unknown(String),
 }
@@ -455,6 +466,9 @@ impl SlashCommand {
             },
             "skills" => Self::Skills {
                 args: remainder_after_command(trimmed, command),
+            },
+            "video" => Self::Video {
+                topic: remainder_after_command(trimmed, command),
             },
             other => Self::Unknown(other.to_string()),
         })
@@ -1820,6 +1834,7 @@ pub fn handle_slash_command(
         | SlashCommand::Plugins { .. }
         | SlashCommand::Agents { .. }
         | SlashCommand::Skills { .. }
+        | SlashCommand::Video { .. }
         | SlashCommand::Unknown(_) => None,
     }
 }
@@ -2182,7 +2197,8 @@ mod tests {
         assert!(help.contains("aliases: /plugins, /marketplace"));
         assert!(help.contains("/agents"));
         assert!(help.contains("/skills"));
-        assert_eq!(slash_command_specs().len(), 28);
+        assert!(help.contains("/video"));
+        assert_eq!(slash_command_specs().len(), 29);
         assert_eq!(resume_supported_slash_commands().len(), 13);
     }
 
