@@ -139,10 +139,8 @@ impl Connector for OllamaAdmin {
         let action = get_str(input, "action");
         let model = get_str(input, "model");
 
-        let host = std::env::var("OLLAMA_BASE_URL")
-            .or_else(|_| std::env::var("OLLAMA_HOST"))
-            .unwrap_or_else(|_| "http://localhost:11434".into());
-        let host = host.trim_end_matches('/');
+        let host = ollama_native_root();
+        let host = host.as_str();
 
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -233,10 +231,11 @@ impl Connector for OllamaAdmin {
         }
     }
     fn is_available(&self) -> bool {
-        // Check if we can reach the Ollama host
-        let host = std::env::var("OLLAMA_BASE_URL")
-            .or_else(|_| std::env::var("OLLAMA_HOST"))
-            .unwrap_or_else(|_| "http://localhost:11434".into());
+        // Hit the native Ollama root — it responds "Ollama is running" 200
+        // when the daemon is up. `ollama_native_root` strips any trailing
+        // `/v1` so the same env var that drives the OpenAI-compat client
+        // (which needs `/v1`) also drives this native-endpoint probe.
+        let host = ollama_native_root();
         reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(3))
             .build()
@@ -244,6 +243,21 @@ impl Connector for OllamaAdmin {
             .and_then(|c| c.get(&host).send().ok())
             .is_some_and(|r| r.status().is_success())
     }
+}
+
+/// Resolve the Ollama native-API root from env. `OLLAMA_BASE_URL` is
+/// shared with the OpenAI-compat model client, which wants the `/v1`
+/// suffix; the native `/api/*` endpoints live one level up. Strip any
+/// trailing slash + `/v1` so both clients can read the same variable.
+fn ollama_native_root() -> String {
+    let raw = std::env::var("OLLAMA_BASE_URL")
+        .or_else(|_| std::env::var("OLLAMA_HOST"))
+        .unwrap_or_else(|_| "http://localhost:11434".into());
+    let trimmed = raw.trim_end_matches('/');
+    trimmed
+        .strip_suffix("/v1")
+        .unwrap_or(trimmed)
+        .to_string()
 }
 
 // ---------------------------------------------------------------------------
