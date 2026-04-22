@@ -4,6 +4,7 @@ description: Answer questions about homelab state (Pi, Mac, UNAS, VPS, WAN, DNS,
 tools: [bash, fs_read, web_fetch]
 vetting: required
 channels: [home-general, infra-alerts, network-*, home-*]
+model: qwen3:32b-q8_0
 ---
 
 # Role

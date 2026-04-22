@@ -6,6 +6,7 @@ vetting: required
 channels: [dev-*, code-review]
 slash_commands: [/rust-review, /review-rust]
 mention_patterns: [review this rust, rust review, check this rust]
+model: qwen3:32b-q8_0
 ---
 
 # Role
