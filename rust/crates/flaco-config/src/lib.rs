@@ -400,17 +400,17 @@ mod tests {
 
     #[test]
     fn default_loads() {
-        with_clean_env(|| {
-            // Load with an explicit path that doesn't exist would error, so
-            // we use the search-path fallback by passing None. In a real
-            // test environment /opt/homebrew/etc/flaco/config.toml doesn't
-            // exist, so we fall all the way through to defaults.
-            let cfg = Config::load(None).expect("defaults should always load");
-            assert_eq!(cfg.server.web_port, 3033);
-            assert_eq!(cfg.ollama.base_url, "http://127.0.0.1:11434");
-            assert_eq!(cfg.tools.tier, Tier::Default);
-            assert!(cfg.paths.db.to_string_lossy().contains("flaco.db"));
-        });
+        // Test the defaults constructor directly rather than going through
+        // Config::load, which searches the filesystem for real config files
+        // (/opt/homebrew/etc/flaco/config.toml, ~/.config/flaco/config.toml).
+        // Those paths are not under test control — the operator's real
+        // install-time config would leak in. The load-with-env-overrides
+        // path is tested separately in env_overrides_file.
+        let cfg = Config::defaults();
+        assert_eq!(cfg.server.web_port, 3033);
+        assert_eq!(cfg.ollama.base_url, "http://127.0.0.1:11434");
+        assert_eq!(cfg.tools.tier, Tier::Default);
+        assert!(cfg.paths.db.to_string_lossy().contains("flaco.db"));
     }
 
     #[test]
