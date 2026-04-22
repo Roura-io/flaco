@@ -211,10 +211,10 @@ fn discover_instruction_files(cwd: &Path) -> std::io::Result<Vec<ContextFile>> {
     let mut files = Vec::new();
     for dir in directories {
         for candidate in [
-            dir.join("CLAW.md"),
-            dir.join("CLAW.local.md"),
-            dir.join(".claw").join("CLAW.md"),
-            dir.join(".claw").join("instructions.md"),
+            dir.join("FLACOAI.md"),
+            dir.join("FLACOAI.local.md"),
+            dir.join(".flacoai").join("FLACOAI.md"),
+            dir.join(".flacoai").join("instructions.md"),
         ] {
             push_context_file(&mut files, candidate)?;
         }
@@ -529,23 +529,23 @@ mod tests {
     fn discovers_instruction_files_from_ancestor_chain() {
         let root = temp_dir();
         let nested = root.join("apps").join("api");
-        fs::create_dir_all(nested.join(".claw")).expect("nested claw dir");
-        fs::write(root.join("CLAW.md"), "root instructions").expect("write root instructions");
-        fs::write(root.join("CLAW.local.md"), "local instructions")
+        fs::create_dir_all(nested.join(".flacoai")).expect("nested flacoai dir");
+        fs::write(root.join("FLACOAI.md"), "root instructions").expect("write root instructions");
+        fs::write(root.join("FLACOAI.local.md"), "local instructions")
             .expect("write local instructions");
         fs::create_dir_all(root.join("apps")).expect("apps dir");
-        fs::create_dir_all(root.join("apps").join(".claw")).expect("apps claw dir");
-        fs::write(root.join("apps").join("CLAW.md"), "apps instructions")
+        fs::create_dir_all(root.join("apps").join(".flacoai")).expect("apps flacoai dir");
+        fs::write(root.join("apps").join("FLACOAI.md"), "apps instructions")
             .expect("write apps instructions");
         fs::write(
-            root.join("apps").join(".claw").join("instructions.md"),
+            root.join("apps").join(".flacoai").join("instructions.md"),
             "apps dot claw instructions",
         )
         .expect("write apps dot claw instructions");
-        fs::write(nested.join(".claw").join("CLAW.md"), "nested rules")
+        fs::write(nested.join(".flacoai").join("FLACOAI.md"), "nested rules")
             .expect("write nested rules");
         fs::write(
-            nested.join(".claw").join("instructions.md"),
+            nested.join(".flacoai").join("instructions.md"),
             "nested instructions",
         )
         .expect("write nested instructions");
@@ -576,8 +576,8 @@ mod tests {
         let root = temp_dir();
         let nested = root.join("apps").join("api");
         fs::create_dir_all(&nested).expect("nested dir");
-        fs::write(root.join("CLAW.md"), "same rules\n\n").expect("write root");
-        fs::write(nested.join("CLAW.md"), "same rules\n").expect("write nested");
+        fs::write(root.join("FLACOAI.md"), "same rules\n\n").expect("write root");
+        fs::write(nested.join("FLACOAI.md"), "same rules\n").expect("write nested");
 
         let context = ProjectContext::discover(&nested, "2026-03-31").expect("context should load");
         assert_eq!(context.instruction_files.len(), 1);
@@ -605,8 +605,8 @@ mod tests {
     #[test]
     fn displays_context_paths_compactly() {
         assert_eq!(
-            display_context_path(Path::new("/tmp/project/.claw/CLAW.md")),
-            "CLAW.md"
+            display_context_path(Path::new("/tmp/project/.flacoai/FLACOAI.md")),
+            "FLACOAI.md"
         );
     }
 
@@ -620,7 +620,7 @@ mod tests {
             .current_dir(&root)
             .status()
             .expect("git init should run");
-        fs::write(root.join("CLAW.md"), "rules").expect("write instructions");
+        fs::write(root.join("FLACOAI.md"), "rules").expect("write instructions");
         fs::write(root.join("tracked.txt"), "hello").expect("write tracked file");
 
         let context =
@@ -628,7 +628,7 @@ mod tests {
 
         let status = context.git_status.expect("git status should be present");
         assert!(status.contains("## No commits yet on") || status.contains("## "));
-        assert!(status.contains("?? CLAW.md"));
+        assert!(status.contains("?? FLACOAI.md"));
         assert!(status.contains("?? tracked.txt"));
         assert!(context.git_diff.is_none());
 
@@ -681,10 +681,10 @@ mod tests {
     #[test]
     fn load_system_prompt_reads_claw_files_and_config() {
         let root = temp_dir();
-        fs::create_dir_all(root.join(".claw")).expect("claw dir");
-        fs::write(root.join("CLAW.md"), "Project rules").expect("write instructions");
+        fs::create_dir_all(root.join(".flacoai")).expect("flacoai dir");
+        fs::write(root.join("FLACOAI.md"), "Project rules").expect("write instructions");
         fs::write(
-            root.join(".claw").join("settings.json"),
+            root.join(".flacoai").join("settings.json"),
             r#"{"permissionMode":"acceptEdits"}"#,
         )
         .expect("write settings");
@@ -692,9 +692,9 @@ mod tests {
         let _guard = env_lock();
         let previous = std::env::current_dir().expect("cwd");
         let original_home = std::env::var("HOME").ok();
-        let original_claw_home = std::env::var("CLAW_CONFIG_HOME").ok();
+        let original_claw_home = std::env::var("FLACOAI_CONFIG_HOME").ok();
         std::env::set_var("HOME", &root);
-        std::env::set_var("CLAW_CONFIG_HOME", root.join("missing-home"));
+        std::env::set_var("FLACOAI_CONFIG_HOME", root.join("missing-home"));
         std::env::set_current_dir(&root).expect("change cwd");
         let prompt = super::load_system_prompt(&root, "2026-03-31", "linux", "6.8")
             .expect("system prompt should load")
@@ -710,9 +710,9 @@ mod tests {
             std::env::remove_var("HOME");
         }
         if let Some(value) = original_claw_home {
-            std::env::set_var("CLAW_CONFIG_HOME", value);
+            std::env::set_var("FLACOAI_CONFIG_HOME", value);
         } else {
-            std::env::remove_var("CLAW_CONFIG_HOME");
+            std::env::remove_var("FLACOAI_CONFIG_HOME");
         }
 
         assert!(prompt.contains("Project rules"));
@@ -723,10 +723,10 @@ mod tests {
     #[test]
     fn renders_claw_code_style_sections_with_project_context() {
         let root = temp_dir();
-        fs::create_dir_all(root.join(".claw")).expect("claw dir");
-        fs::write(root.join("CLAW.md"), "Project rules").expect("write CLAW.md");
+        fs::create_dir_all(root.join(".flacoai")).expect("flacoai dir");
+        fs::write(root.join("FLACOAI.md"), "Project rules").expect("write FLACOAI.md");
         fs::write(
-            root.join(".claw").join("settings.json"),
+            root.join(".flacoai").join("settings.json"),
             r#"{"permissionMode":"acceptEdits"}"#,
         )
         .expect("write settings");
@@ -765,9 +765,9 @@ mod tests {
     fn discovers_dot_claw_instructions_markdown() {
         let root = temp_dir();
         let nested = root.join("apps").join("api");
-        fs::create_dir_all(nested.join(".claw")).expect("nested claw dir");
+        fs::create_dir_all(nested.join(".flacoai")).expect("nested flacoai dir");
         fs::write(
-            nested.join(".claw").join("instructions.md"),
+            nested.join(".flacoai").join("instructions.md"),
             "instruction markdown",
         )
         .expect("write instructions.md");
@@ -776,7 +776,7 @@ mod tests {
         assert!(context
             .instruction_files
             .iter()
-            .any(|file| file.path.ends_with(".claw/instructions.md")));
+            .any(|file| file.path.ends_with(".flacoai/instructions.md")));
         assert!(
             render_instruction_files(&context.instruction_files).contains("instruction markdown")
         );
@@ -787,7 +787,7 @@ mod tests {
     #[test]
     fn renders_instruction_file_metadata() {
         let rendered = render_instruction_files(&[ContextFile {
-            path: PathBuf::from("/tmp/project/CLAW.md"),
+            path: PathBuf::from("/tmp/project/FLACOAI.md"),
             content: "Project rules".to_string(),
         }]);
         assert!(rendered.contains("# Claw instructions"));

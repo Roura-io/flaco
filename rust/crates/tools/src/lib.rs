@@ -1111,7 +1111,7 @@ fn normalize_fetch_url(url: &str) -> Result<String, String> {
 }
 
 fn build_search_url(query: &str) -> Result<reqwest::Url, String> {
-    if let Ok(base) = std::env::var("CLAW_WEB_SEARCH_BASE_URL") {
+    if let Ok(base) = std::env::var("FLACOAI_WEB_SEARCH_BASE_URL") {
         let mut url = reqwest::Url::parse(&base).map_err(|error| error.to_string())?;
         url.query_pairs_mut().append_pair("q", query);
         return Ok(url);
@@ -1456,7 +1456,7 @@ fn validate_todos(todos: &[TodoItem]) -> Result<(), String> {
 }
 
 fn todo_store_path() -> Result<std::path::PathBuf, String> {
-    if let Ok(path) = std::env::var("CLAW_TODO_STORE") {
+    if let Ok(path) = std::env::var("FLACOAI_TODO_STORE") {
         return Ok(std::path::PathBuf::from(path));
     }
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
@@ -2361,7 +2361,7 @@ fn canonical_tool_token(value: &str) -> String {
 }
 
 fn agent_store_dir() -> Result<std::path::PathBuf, String> {
-    if let Ok(path) = std::env::var("CLAW_AGENT_STORE") {
+    if let Ok(path) = std::env::var("FLACOAI_AGENT_STORE") {
         return Ok(std::path::PathBuf::from(path));
     }
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
@@ -2916,7 +2916,7 @@ fn config_file_for_scope(scope: ConfigScope) -> Result<PathBuf, String> {
 }
 
 fn config_home_dir() -> Result<PathBuf, String> {
-    if let Ok(path) = std::env::var("CLAW_CONFIG_HOME") {
+    if let Ok(path) = std::env::var("FLACOAI_CONFIG_HOME") {
         return Ok(PathBuf::from(path));
     }
     let home = std::env::var("HOME").map_err(|_| String::from("HOME is not set"))?;
@@ -3369,7 +3369,7 @@ mod tests {
         }));
 
         std::env::set_var(
-            "CLAW_WEB_SEARCH_BASE_URL",
+            "FLACOAI_WEB_SEARCH_BASE_URL",
             format!("http://{}/search", server.addr()),
         );
         let result = execute_tool(
@@ -3381,7 +3381,7 @@ mod tests {
             }),
         )
         .expect("WebSearch should succeed");
-        std::env::remove_var("CLAW_WEB_SEARCH_BASE_URL");
+        std::env::remove_var("FLACOAI_WEB_SEARCH_BASE_URL");
 
         let output: serde_json::Value = serde_json::from_str(&result).expect("valid json");
         assert_eq!(output["query"], "rust web search");
@@ -3417,7 +3417,7 @@ mod tests {
         }));
 
         std::env::set_var(
-            "CLAW_WEB_SEARCH_BASE_URL",
+            "FLACOAI_WEB_SEARCH_BASE_URL",
             format!("http://{}/fallback", server.addr()),
         );
         let result = execute_tool(
@@ -3427,7 +3427,7 @@ mod tests {
             }),
         )
         .expect("WebSearch fallback parsing should succeed");
-        std::env::remove_var("CLAW_WEB_SEARCH_BASE_URL");
+        std::env::remove_var("FLACOAI_WEB_SEARCH_BASE_URL");
 
         let output: serde_json::Value = serde_json::from_str(&result).expect("valid json");
         let results = output["results"].as_array().expect("results array");
@@ -3440,10 +3440,10 @@ mod tests {
         assert_eq!(content[0]["url"], "https://example.com/one");
         assert_eq!(content[1]["url"], "https://docs.rs/tokio");
 
-        std::env::set_var("CLAW_WEB_SEARCH_BASE_URL", "://bad-base-url");
+        std::env::set_var("FLACOAI_WEB_SEARCH_BASE_URL", "://bad-base-url");
         let error = execute_tool("WebSearch", &json!({ "query": "generic links" }))
             .expect_err("invalid base URL should fail");
-        std::env::remove_var("CLAW_WEB_SEARCH_BASE_URL");
+        std::env::remove_var("FLACOAI_WEB_SEARCH_BASE_URL");
         assert!(error.contains("relative URL without a base") || error.contains("empty host"));
     }
 
@@ -3510,7 +3510,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let path = temp_path("todos.json");
-        std::env::set_var("CLAW_TODO_STORE", &path);
+        std::env::set_var("FLACOAI_TODO_STORE", &path);
 
         let first = execute_tool(
             "TodoWrite",
@@ -3536,7 +3536,7 @@ mod tests {
             }),
         )
         .expect("TodoWrite should succeed");
-        std::env::remove_var("CLAW_TODO_STORE");
+        std::env::remove_var("FLACOAI_TODO_STORE");
         let _ = std::fs::remove_file(path);
 
         let second_output: serde_json::Value = serde_json::from_str(&second).expect("valid json");
@@ -3557,7 +3557,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let path = temp_path("todos-errors.json");
-        std::env::set_var("CLAW_TODO_STORE", &path);
+        std::env::set_var("FLACOAI_TODO_STORE", &path);
 
         let empty = execute_tool("TodoWrite", &json!({ "todos": [] }))
             .expect_err("empty todos should fail");
@@ -3597,7 +3597,7 @@ mod tests {
             }),
         )
         .expect("completed todos should succeed");
-        std::env::remove_var("CLAW_TODO_STORE");
+        std::env::remove_var("FLACOAI_TODO_STORE");
         let _ = fs::remove_file(path);
 
         let output: serde_json::Value = serde_json::from_str(&nudge).expect("valid json");
@@ -3684,7 +3684,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let dir = temp_path("agent-store");
-        std::env::set_var("CLAW_AGENT_STORE", &dir);
+        std::env::set_var("FLACOAI_AGENT_STORE", &dir);
         let captured = Arc::new(Mutex::new(None::<AgentJob>));
         let captured_for_spawn = Arc::clone(&captured);
 
@@ -3704,7 +3704,7 @@ mod tests {
             },
         )
         .expect("Agent should succeed");
-        std::env::remove_var("CLAW_AGENT_STORE");
+        std::env::remove_var("FLACOAI_AGENT_STORE");
 
         assert_eq!(manifest.name, "ship-audit");
         assert_eq!(manifest.subagent_type.as_deref(), Some("Explore"));
@@ -3761,7 +3761,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let dir = temp_path("agent-runner");
-        std::env::set_var("CLAW_AGENT_STORE", &dir);
+        std::env::set_var("FLACOAI_AGENT_STORE", &dir);
 
         let completed = execute_agent_with_spawn(
             AgentInput {
@@ -3843,7 +3843,7 @@ mod tests {
         assert!(spawn_error_manifest.contains("\"status\": \"failed\""));
         assert!(spawn_error_manifest.contains("thread creation failed"));
 
-        std::env::remove_var("CLAW_AGENT_STORE");
+        std::env::remove_var("FLACOAI_AGENT_STORE");
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -4377,10 +4377,10 @@ mod tests {
         .expect("write global settings");
 
         let original_home = std::env::var("HOME").ok();
-        let original_config_home = std::env::var("CLAW_CONFIG_HOME").ok();
+        let original_config_home = std::env::var("FLACOAI_CONFIG_HOME").ok();
         let original_dir = std::env::current_dir().expect("cwd");
         std::env::set_var("HOME", &home);
-        std::env::remove_var("CLAW_CONFIG_HOME");
+        std::env::remove_var("FLACOAI_CONFIG_HOME");
         std::env::set_current_dir(&cwd).expect("set cwd");
 
         let get = execute_tool("Config", &json!({"setting": "verbose"})).expect("get config");
@@ -4414,8 +4414,8 @@ mod tests {
             None => std::env::remove_var("HOME"),
         }
         match original_config_home {
-            Some(value) => std::env::set_var("CLAW_CONFIG_HOME", value),
-            None => std::env::remove_var("CLAW_CONFIG_HOME"),
+            Some(value) => std::env::set_var("FLACOAI_CONFIG_HOME", value),
+            None => std::env::remove_var("FLACOAI_CONFIG_HOME"),
         }
         let _ = std::fs::remove_dir_all(root);
     }

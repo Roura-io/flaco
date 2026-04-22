@@ -420,7 +420,7 @@ fn permission_mode_from_label(mode: &str) -> PermissionMode {
 }
 
 fn default_permission_mode() -> PermissionMode {
-    env::var("CLAW_PERMISSION_MODE")
+    env::var("FLACOAI_PERMISSION_MODE")
         .ok()
         .as_deref()
         .and_then(normalize_permission_mode)
@@ -964,7 +964,7 @@ fn run_resume_command(
         }),
         SlashCommand::Init => Ok(ResumeCommandOutcome {
             session: session.clone(),
-            message: Some(init_claw_md()?),
+            message: Some(init_flacoai_md()?),
         }),
         SlashCommand::Diff => Ok(ResumeCommandOutcome {
             session: session.clone(),
@@ -1140,7 +1140,7 @@ impl LiveCli {
             || workspace_name.to_string(),
             |branch| format!("{workspace_name} · {branch}"),
         );
-        let has_claw_md = cwd
+        let has_flacoai_md = cwd
             .as_ref()
             .is_some_and(|path| path.join("FLACOAI.md").is_file());
         let mut lines = vec![
@@ -1174,7 +1174,7 @@ impl LiveCli {
             format!("  {}", self.integration_banner),
             format!(
                 "  Quick start      {}",
-                if has_claw_md {
+                if has_flacoai_md {
                     "/help · /status · ask for a task"
                 } else {
                     "/init · /help · /status"
@@ -1184,7 +1184,7 @@ impl LiveCli {
                 .to_string(),
             "  Multiline        Shift+Enter or Ctrl+J inserts a newline".to_string(),
         ];
-        if !has_claw_md {
+        if !has_flacoai_md {
             lines.push(
                 "  First run        /init scaffolds FLACOAI.md, .flacoai.json, and local session files"
                     .to_string(),
@@ -2413,13 +2413,13 @@ fn render_memory_report() -> Result<String, Box<dyn std::error::Error>> {
     ))
 }
 
-fn init_claw_md() -> Result<String, Box<dyn std::error::Error>> {
+fn init_flacoai_md() -> Result<String, Box<dyn std::error::Error>> {
     let cwd = env::current_dir()?;
     Ok(initialize_repo(&cwd)?.render())
 }
 
 fn run_init() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", init_claw_md()?);
+    println!("{}", init_flacoai_md()?);
     Ok(())
 }
 
@@ -4978,13 +4978,13 @@ mod tests {
 
     #[test]
     fn init_template_mentions_detected_rust_workspace() {
-        let rendered = crate::init::render_init_claw_md(std::path::Path::new("."));
-        // The generated guidance file is `CLAW.md` — assert we get the
+        let rendered = crate::init::render_init_flacoai_md(std::path::Path::new("."));
+        // The generated guidance file is `FLACOAI.md` — assert we get the
         // expected heading and the canonical Rust verification command.
         // (Drifted from `# FLACOAI.md` when the template was renamed;
         // this test asserted the pre-rename string and was red on main
         // for both v1 and v2 grading.)
-        assert!(rendered.contains("# CLAW.md"));
+        assert!(rendered.contains("# FLACOAI.md"));
         assert!(rendered.contains("cargo clippy --workspace --all-targets -- -D warnings"));
     }
 
