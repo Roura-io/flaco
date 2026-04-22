@@ -509,6 +509,334 @@ pub async fn web_search(http: &reqwest::Client, query: &str) -> Result<String, S
     Ok(formatted)
 }
 
+
+/// Fetch live sports data for Yankees/MLB questions.
+/// Hits the MLB StatsAPI directly — returns real game data with scoring plays.
+pub async fn sports_data(http: &reqwest::Client, query: &str) -> Option<String> {
+    let lower = query.to_lowercase();
+    
+    let is_yankees = lower.contains("yankees") || lower.contains("yanks");
+    let is_mlb = lower.contains("mlb") || lower.contains("baseball");
+    if !is_yankees && !is_mlb {
+        return None;
+    }
+    
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let url = format!(
+        "https://statsapi.mlb.com/api/v1/schedule?sportId=1&date={today}&teamId=147&hydrate=probablePitcher,linescore,decisions"
+    );
+    
+    let resp = http.get(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send().await.ok()?;
+    let body: serde_json::Value = resp.json().await.ok()?;
+    
+    let games = body["dates"][0]["games"].as_array();
+    let games = match games {
+        Some(g) if !g.is_empty() => g,
+        _ => return Some(format!("MLB StatsAPI: No Yankees game scheduled for today ({today}).")),
+    };
+    
+    let mut results = Vec::new();
+    for g in games {
+        let away = g["teams"]["away"]["team"]["name"].as_str().unwrap_or("?");
+        let home = g["teams"]["home"]["team"]["name"].as_str().unwrap_or("?");
+        let game_date = g["gameDate"].as_str().unwrap_or("");
+        let status = g["status"]["detailedState"].as_str().unwrap_or("?");
+        let away_pitcher = g["teams"]["away"]["probablePitcher"]["fullName"].as_str().unwrap_or("TBD");
+        let home_pitcher = g["teams"]["home"]["probablePitcher"]["fullName"].as_str().unwrap_or("TBD");
+        
+        let time_str = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(game_date) {
+            dt.with_timezone(&chrono::FixedOffset::east_opt(-4 * 3600).unwrap())
+                .format("%-I:%M %p ET").to_string()
+        } else { game_date.to_string() };
+        
+        // Linescore
+        let ls = &g["linescore"]["teams"];
+        let away_runs = ls["away"]["runs"].as_i64().unwrap_or(0);
+        let home_runs = ls["home"]["runs"].as_i64().unwrap_or(0);
+        let away_hits = ls["away"]["hits"].as_i64().unwrap_or(0);
+        let home_hits = ls["home"]["hits"].as_i64().unwrap_or(0);
+        
+        // Decisions
+        let winner = g["decisions"]["winner"]["fullName"].as_str().unwrap_or("?");
+        let loser = g["decisions"]["loser"]["fullName"].as_str().unwrap_or("?");
+        let save_pitcher = g["decisions"]["save"]["fullName"].as_str();
+        
+        let is_home = home.contains("Yankees");
+        let yanks_won = if is_home { home_runs > away_runs } else { away_runs > home_runs };
+        
+        results.push(format!("{away} @ {home} | {time_str} | {status}"));
+        results.push(format!("Score: {away} {away_runs} - {home} {home_runs} ({away_hits}H vs {home_hits}H)"));
+        results.push(format!("Starters: {away_pitcher} vs {home_pitcher}"));
+        if status.contains("Final") || status.contains("Game Over") {
+            let outcome = if yanks_won { "Yankees WIN" } else { "Yankees LOSE" };
+            results.push(format!("Result: {outcome}"));
+            results.push(format!("W: {winner} | L: {loser}{}", save_pitcher.map(|s| format!(" | SV: {s}")).unwrap_or_default()));
+        }
+        
+        // Get scoring plays from game feed
+        let game_pk = g["gamePk"].as_i64().unwrap_or(0);
+        if game_pk > 0 {
+            let feed_url = format!("https://statsapi.mlb.com/api/v1.1/game/{game_pk}/feed/live");
+            if let Ok(feed_resp) = http.get(&feed_url)
+                .timeout(std::time::Duration::from_secs(5))
+                .send().await
+            {
+                if let Ok(feed) = feed_resp.json::<serde_json::Value>().await {
+                    let scoring_idxs = feed["liveData"]["plays"]["scoringPlays"].as_array();
+                    let all_plays = feed["liveData"]["plays"]["allPlays"].as_array();
+                    if let (Some(idxs), Some(plays)) = (scoring_idxs, all_plays) {
+                        results.push("Key scoring plays:".to_string());
+                        for idx_val in idxs.iter().take(6) {
+                            if let Some(idx) = idx_val.as_u64() {
+                                if let Some(play) = plays.get(idx as usize) {
+                                    let desc = play["result"]["description"].as_str().unwrap_or("");
+                                    let half = play["about"]["halfInning"].as_str().unwrap_or("?");
+                                    let inn = play["about"]["inning"].as_i64().unwrap_or(0);
+                                    let half_label = if half == "top" { "Top" } else { "Bot" };
+                                    results.push(format!("  {half_label} {inn}: {desc}"));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Some(format!("MLB StatsAPI LIVE data ({today}):\nWrite a natural, conversational game summary using this data. Lead with the outcome, mention key moments.\n{}", results.join("\n")))
+}
+
+/// Fetch NHL schedule data from the NHL API.
+pub async fn nhl_data(http: &reqwest::Client, query: &str) -> Option<String> {
+    let lower = query.to_lowercase();
+    let teams = ["rangers", "islanders", "devils", "nhl", "hockey", "bruins", "maple leafs", 
+                  "canadiens", "penguins", "capitals", "flyers", "panthers", "lightning",
+                  "hurricanes", "blue jackets", "red wings", "sabres", "senators", "blackhawks",
+                  "wild", "blues", "predators", "stars", "avalanche", "jets", "flames",
+                  "oilers", "canucks", "kraken", "kings", "ducks", "sharks", "knights", "coyotes"];
+    if !teams.iter().any(|t| lower.contains(t)) {
+        return None;
+    }
+    
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let url = format!("https://api-web.nhle.com/v1/schedule/{today}");
+    
+    let resp = http.get(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send().await.ok()?;
+    let body: serde_json::Value = resp.json().await.ok()?;
+    
+    let game_weeks = body["gameWeek"].as_array()?;
+    let mut results = Vec::new();
+    
+    for day in game_weeks {
+        let date = day["date"].as_str().unwrap_or("?");
+        if date != today { continue; }
+        let games = day["games"].as_array()?;
+        for g in games {
+            let away = g["awayTeam"]["placeName"]["default"].as_str().unwrap_or("?");
+            let home = g["homeTeam"]["placeName"]["default"].as_str().unwrap_or("?");
+            let away_abbr = g["awayTeam"]["abbrev"].as_str().unwrap_or("?");
+            let home_abbr = g["homeTeam"]["abbrev"].as_str().unwrap_or("?");
+            let start = g["startTimeUTC"].as_str().unwrap_or("?");
+            let state = g["gameState"].as_str().unwrap_or("?");
+            
+            let time_str = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(start) {
+                dt.with_timezone(&chrono::FixedOffset::east_opt(-4 * 3600).unwrap())
+                    .format("%-I:%M %p ET").to_string()
+            } else { start.to_string() };
+            
+            let away_score = g["awayTeam"]["score"].as_i64().unwrap_or(0);
+            let home_score = g["homeTeam"]["score"].as_i64().unwrap_or(0);
+            let score = if state == "LIVE" || state == "FINAL" {
+                format!(" | {away_abbr} {away_score} - {home_abbr} {home_score}")
+            } else { String::new() };
+            
+            results.push(format!("{away} @ {home} | {time_str} | {state}{score}"));
+        }
+    }
+    
+    if results.is_empty() {
+        Some(format!("NHL API: No games scheduled for today ({today})."))
+    } else {
+        Some(format!("NHL Schedule ({today}):\n{}", results.join("\n")))
+    }
+}
+
+/// Fetch English Premier League data from the football-data.org free API.
+pub async fn epl_data(http: &reqwest::Client, query: &str) -> Option<String> {
+    let lower = query.to_lowercase();
+    let triggers = ["premier league", "epl", "arsenal", "chelsea", "liverpool", 
+                     "man city", "manchester city", "man united", "manchester united",
+                     "tottenham", "spurs", "newcastle", "west ham", "aston villa",
+                     "brighton", "crystal palace", "fulham", "wolves", "bournemouth",
+                     "nottingham", "brentford", "everton", "ipswich", "leicester",
+                     "southampton", "transfer", "table", "standings"];
+    if !triggers.iter().any(|t| lower.contains(t)) {
+        return None;
+    }
+    
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    
+    // football-data.org free tier (10 req/min, no key needed for basic)
+    let url = format!(
+        "https://api.football-data.org/v4/competitions/PL/matches?status=SCHEDULED,IN_PLAY,FINISHED&dateFrom={today}&dateTo={today}"
+    );
+    
+    let resp = match http.get(&url)
+        .header("X-Auth-Token", "")  // free tier works without token for basic data
+        .timeout(std::time::Duration::from_secs(5))
+        .send().await
+    {
+        Ok(r) => r,
+        Err(_) => return None,
+    };
+    
+    let body: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
+    
+    let matches = body["matches"].as_array();
+    let mut results = Vec::new();
+    
+    if let Some(matches) = matches {
+        for m in matches {
+            let home = m["homeTeam"]["shortName"].as_str().unwrap_or("?");
+            let away = m["awayTeam"]["shortName"].as_str().unwrap_or("?");
+            let status = m["status"].as_str().unwrap_or("?");
+            let home_score = m["score"]["fullTime"]["home"].as_i64();
+            let away_score = m["score"]["fullTime"]["away"].as_i64();
+            let utc_date = m["utcDate"].as_str().unwrap_or("?");
+            
+            let time_str = if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(utc_date) {
+                dt.with_timezone(&chrono::FixedOffset::east_opt(-4 * 3600).unwrap())
+                    .format("%-I:%M %p ET").to_string()
+            } else { utc_date.to_string() };
+            
+            let score = match (home_score, away_score) {
+                (Some(h), Some(a)) => format!(" | {home} {h} - {away} {a}"),
+                _ => String::new(),
+            };
+            
+            results.push(format!("{home} vs {away} | {time_str} | {status}{score}"));
+        }
+    }
+    
+    // Also get standings if asked about table/standings
+    if lower.contains("table") || lower.contains("standing") || lower.contains("rank") {
+        let standings_url = "https://api.football-data.org/v4/competitions/PL/standings";
+        if let Ok(resp) = http.get(standings_url)
+            .timeout(std::time::Duration::from_secs(5))
+            .send().await
+        {
+            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                if let Some(table) = body["standings"][0]["table"].as_array() {
+                    results.push("\nPL Standings:".to_string());
+                    for (i, team) in table.iter().enumerate().take(10) {
+                        let name = team["team"]["shortName"].as_str().unwrap_or("?");
+                        let pts = team["points"].as_i64().unwrap_or(0);
+                        let w = team["won"].as_i64().unwrap_or(0);
+                        let d = team["draw"].as_i64().unwrap_or(0);
+                        let l = team["lost"].as_i64().unwrap_or(0);
+                        let gd = team["goalDifference"].as_i64().unwrap_or(0);
+                        results.push(format!("{}. {} | {}pts | {w}W-{d}D-{l}L | GD {gd}", i+1, name, pts));
+                    }
+                }
+            }
+        }
+    }
+    
+    if results.is_empty() {
+        Some(format!("EPL: No Premier League matches today ({today})."))
+    } else {
+        Some(format!("Premier League ({today}):\n{}", results.join("\n")))
+    }
+}
+
+
+/// Detect if the user wants to generate a video and extract parameters.
+/// Returns Some((topic, duration, style, notes)) if detected.
+pub fn is_video_request(text: &str) -> Option<(String, String, String, String)> {
+    let lower = text.to_lowercase();
+    let triggers = ["generate a video", "make a video", "create a video", 
+                     "video script", "generate video", "make me a video"];
+    if !triggers.iter().any(|t| lower.contains(t)) {
+        return None;
+    }
+    
+    // Extract topic — everything after the trigger phrase
+    let mut topic = text.to_string();
+    for t in &triggers {
+        if let Some(pos) = lower.find(t) {
+            topic = text[pos + t.len()..].trim_start_matches(&[' ', ':', '-'][..]).to_string();
+            break;
+        }
+    }
+    
+    // Extract duration if mentioned
+    let duration = if lower.contains("30 sec") { "30 seconds".into() }
+        else if lower.contains("60 sec") || lower.contains("1 min") { "60 seconds".into() }
+        else if lower.contains("90 sec") { "90 seconds".into() }
+        else if lower.contains("2 min") { "2 minutes".into() }
+        else if lower.contains("3 min") { "3 minutes".into() }
+        else if lower.contains("5 min") { "5 minutes".into() }
+        else { "60 seconds".into() };
+    
+    // Extract style hints
+    let style = if lower.contains("tutorial") { "tutorial".into() }
+        else if lower.contains("vlog") { "vlog".into() }
+        else if lower.contains("explainer") { "explainer".into() }
+        else if lower.contains("cinematic") { "cinematic".into() }
+        else if lower.contains("funny") || lower.contains("comedy") { "comedy".into() }
+        else { "engaging and professional".into() };
+    
+    if topic.is_empty() { return None; }
+    
+    Some((topic, duration, style, String::new()))
+}
+
+/// Fire the n8n video generator webhook.
+pub async fn trigger_video_generation(
+    http: &reqwest::Client,
+    topic: &str,
+    duration: &str,
+    style: &str,
+    notes: &str,
+) -> Result<String, String> {
+    let body = serde_json::json!({
+        "topic": topic,
+        "duration": duration,
+        "style": style,
+        "notes": notes
+    });
+    
+    let resp = http
+        .post("http://10.0.1.4:5678/webhook/generate-video")
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(120))
+        .send()
+        .await
+        .map_err(|e| format!("n8n webhook error: {e}"))?;
+    
+    let result: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("n8n response error: {e}"))?;
+    
+    if result["success"].as_bool() == Some(true) {
+        let scenes = result["scenes"].as_i64().unwrap_or(0);
+        Ok(format!(
+            "Video script generated! {} scenes for: {}\n\nScript posted to Slack. Check #home-general.",
+            scenes, topic
+        ))
+    } else {
+        Err(format!("Video generation failed: {}", result))
+    }
+}
+
 /// Parse DuckDuckGo lite HTML to extract result titles and snippets.
 ///
 /// DDG lite uses a table-based layout. Result links are in

@@ -1195,10 +1195,13 @@ impl LiveCli {
 
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
         runtime::tool_vet::process_context().set_last_user_message(input);
+        // Live context injection from WIP — augment input with today's date etc.
+        let augmented_input = enrich_input_with_live_context(input);
+        let effective_input = augmented_input.as_deref().unwrap_or(input);
         let mut animated = spinner::start_turn("🦀 Thinking...");
         let mut stdout = io::stdout();
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
-        let result = self.runtime.run_turn(input, Some(&mut permission_prompter));
+        let result = self.runtime.run_turn(effective_input, Some(&mut permission_prompter));
         // Belt-and-suspenders: the streaming client stops the spinner on
         // the first text token, but a tool-only turn (no text) never
         // triggers that path. Stop here unconditionally so the ✔ marker
@@ -1240,6 +1243,8 @@ impl LiveCli {
 
     fn run_prompt_json(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
         runtime::tool_vet::process_context().set_last_user_message(input);
+        let augmented_input = enrich_input_with_live_context(input);
+        let effective_input = augmented_input.as_deref().unwrap_or(input);
         let session = self.runtime.session().clone();
         let mut runtime = build_runtime(
             session,
@@ -1252,7 +1257,7 @@ impl LiveCli {
             None,
         )?;
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
-        let summary = runtime.run_turn(input, Some(&mut permission_prompter))?;
+        let summary = runtime.run_turn(effective_input, Some(&mut permission_prompter))?;
         self.runtime = runtime;
         self.persist_session()?;
         println!(
@@ -2744,6 +2749,80 @@ fn resolve_export_path(
         format!("{file_name}.txt")
     };
     Ok(cwd.join(final_name))
+}
+
+/// Pre-fetch live context (sports scores, web search) for the user's query.
+///
+/// Returns  when live data was injected,  when the
+/// original input should be used as-is. The augmented string prepends a
+/// context block so the local LLM sees real facts before the question.
+fn enrich_input_with_live_context(input: &str) -> Option<String> {
+    let today = chrono::Local::now().format("%A, %B %-d, %Y").to_string();
+    // Quick keyword check -- skip the async work for non-sports / non-news queries
+    let needs_sports = channels::inference::needs_web_search(input).is_some();
+    if !needs_sports {
+        return None;
+    }
+
+    // Build a short-lived tokio runtime to run the async fetches.
+    // This is intentional: the CLI's main thread is synchronous, and the
+    // DefaultRuntimeClient already does the same pattern internally.
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(_) => return None,
+    };
+
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(6))
+        .build()
+        .unwrap_or_default();
+
+    let mut context_parts: Vec<String> = Vec::new();
+
+    // Sports APIs -- try MLB, NHL, EPL in parallel
+    let (mlb, nhl, epl) = rt.block_on(async {
+        let mlb = channels::inference::sports_data(&http, input).await;
+        let nhl = channels::inference::nhl_data(&http, input).await;
+        let epl = channels::inference::epl_data(&http, input).await;
+        (mlb, nhl, epl)
+    });
+
+    if let Some(data) = mlb {
+        context_parts.push(data);
+    }
+    if let Some(data) = nhl {
+        context_parts.push(data);
+    }
+    if let Some(data) = epl {
+        context_parts.push(data);
+    }
+
+    // DDG web search as fallback when sports APIs didn't fire
+    if context_parts.is_empty() {
+        if let Some(query) = channels::inference::needs_web_search(input) {
+            if let Ok(results) = rt.block_on(channels::inference::web_search(&http, &query)) {
+                context_parts.push(format!("Web search results for '{query}':
+{results}"));
+            }
+        }
+    }
+
+    if context_parts.is_empty() {
+        return None;
+    }
+
+    let context_block = context_parts.join("
+
+");
+    Some(format!(
+        "[LIVE DATA as of {today}]
+{context_block}
+[END LIVE DATA]
+
+Using the live data above, write a natural conversational response. For sports: lead with the outcome (who won/lost and the score), then describe key moments and pivotal plays in narrative form. Do NOT use bullet points. Do NOT say you lack real-time data. Write like a sports broadcaster giving a recap.
+
+{input}"
+    ))
 }
 
 fn build_system_prompt() -> Result<Vec<String>, Box<dyn std::error::Error>> {

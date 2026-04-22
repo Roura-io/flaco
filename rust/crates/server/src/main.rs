@@ -130,11 +130,178 @@ fn load_registry<T>(
     HashMap::new()
 }
 
+/// First-run setup wizard. Called when ~/.config/flaco/config doesn't exist
+/// or when --setup is passed explicitly.
+fn run_setup() {
+    use std::io::{self, Write, BufRead};
+    
+    let config_dir = dirs::home_dir()
+        .map(|h| h.join(".config/flaco"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".config/flaco"));
+    let config_path = config_dir.join("config");
+    
+    println!();
+    println!("  \x1b[1;36m━━━ flacoAi Setup ━━━\x1b[0m");
+    println!();
+    println!("  Let's configure flacoAi. Press Enter to accept defaults.");
+    println!();
+    
+    let stdin = io::stdin();
+    let mut reader = stdin.lock();
+    
+    // 1. Ollama URL
+    print!("  Ollama URL [\x1b[2mhttp://localhost:11434\x1b[0m]: ");
+    io::stdout().flush().unwrap();
+    let mut ollama_url = String::new();
+    reader.read_line(&mut ollama_url).unwrap();
+    let ollama_url = ollama_url.trim();
+    let ollama_url = if ollama_url.is_empty() { "http://localhost:11434" } else { ollama_url };
+    
+    // 2. Test connection and list models
+    println!("  \x1b[2mTesting connection to {ollama_url}...\x1b[0m");
+    let models = test_ollama_connection(ollama_url);
+    
+    let (model, model_small, model_large, model_coder) = if let Some(ref models) = models {
+        println!("  \x1b[32m✓\x1b[0m Connected. {} models available:", models.len());
+        for (i, m) in models.iter().enumerate() {
+            println!("    {}. {}", i + 1, m);
+        }
+        println!();
+        
+        // Pick models
+        let model = pick_model(&mut reader, "Default model (medium tier)", models, 
+            models.first().map(|s| s.as_str()));
+        let model_small = pick_model(&mut reader, "Small/fast model (short messages)", models,
+            models.iter().find(|m| m.contains("flash") || m.contains("mini")).map(|s| s.as_str()));
+        let model_large = pick_model(&mut reader, "Large model (complex tasks)", models,
+            models.iter().find(|m| m.contains("70b") || m.contains("r1")).map(|s| s.as_str()));
+        let model_coder = pick_model(&mut reader, "Coder model (code tasks)", models,
+            models.iter().find(|m| m.contains("coder")).map(|s| s.as_str()));
+        
+        (model, model_small, model_large, model_coder)
+    } else {
+        println!("  \x1b[33m⚠\x1b[0m Could not connect to Ollama. You can configure models manually later.");
+        println!();
+        
+        print!("  Default model name: ");
+        io::stdout().flush().unwrap();
+        let mut model = String::new();
+        reader.read_line(&mut model).unwrap();
+        let model = model.trim().to_string();
+        
+        (
+            if model.is_empty() { String::new() } else { model },
+            String::new(),
+            String::new(), 
+            String::new(),
+        )
+    };
+    
+    // 3. Anthropic API key
+    println!();
+    println!("  \x1b[1mClaude Validation (recommended)\x1b[0m");
+    println!("  Every response is validated by Claude to catch hallucinations.");
+    println!("  Get a key at: https://console.anthropic.com/settings/keys");
+    println!();
+    print!("  Anthropic API key [\x1b[2mskip\x1b[0m]: ");
+    io::stdout().flush().unwrap();
+    let mut api_key = String::new();
+    reader.read_line(&mut api_key).unwrap();
+    let api_key = api_key.trim();
+    
+    // 4. Write config
+    let _ = std::fs::create_dir_all(&config_dir);
+    let mut config = String::new();
+    config.push_str("# flacoAi Configuration\n");
+    config.push_str(&format!("OLLAMA_BASE_URL={ollama_url}\n"));
+    if !model.is_empty() { config.push_str(&format!("FLACO_MODEL={model}\n")); }
+    if !model_small.is_empty() { config.push_str(&format!("FLACO_MODEL_SMALL={model_small}\n")); }
+    if !model_large.is_empty() { config.push_str(&format!("FLACO_MODEL_LARGE={model_large}\n")); }
+    if !model_coder.is_empty() { config.push_str(&format!("FLACO_MODEL_CODER={model_coder}\n")); }
+    if !api_key.is_empty() { config.push_str(&format!("ANTHROPIC_API_KEY={api_key}\n")); }
+    
+    std::fs::write(&config_path, &config).expect("Failed to write config");
+    
+    println!();
+    println!("  \x1b[32m✓\x1b[0m Config saved to {}", config_path.display());
+    println!("  \x1b[2mEdit anytime: nano {}\x1b[0m", config_path.display());
+    println!();
+    
+    // Re-export the vars so the current process picks them up
+    std::env::set_var("OLLAMA_BASE_URL", ollama_url);
+    if !model.is_empty() { std::env::set_var("FLACO_MODEL", &model); }
+    if !model_small.is_empty() { std::env::set_var("FLACO_MODEL_SMALL", &model_small); }
+    if !model_large.is_empty() { std::env::set_var("FLACO_MODEL_LARGE", &model_large); }
+    if !model_coder.is_empty() { std::env::set_var("FLACO_MODEL_CODER", &model_coder); }
+    if !api_key.is_empty() { std::env::set_var("ANTHROPIC_API_KEY", api_key); }
+}
+
+fn test_ollama_connection(url: &str) -> Option<Vec<String>> {
+    let rt = tokio::runtime::Handle::current();
+    let url = url.to_string();
+    std::thread::spawn(move || {
+        rt.block_on(async {
+            let client = reqwest::Client::new();
+            let resp = client
+                .get(format!("{url}/api/tags"))
+                .timeout(std::time::Duration::from_secs(5))
+                .send()
+                .await
+                .ok()?;
+            let body: serde_json::Value = resp.json().await.ok()?;
+            let models: Vec<String> = body["models"]
+                .as_array()?
+                .iter()
+                .filter_map(|m| m["name"].as_str().map(|s| s.to_string()))
+                .collect();
+            Some(models)
+        })
+    })
+    .join()
+    .ok()?
+}
+
+fn pick_model(reader: &mut impl std::io::BufRead, label: &str, models: &[String], default: Option<&str>) -> String {
+    let default_display = default.unwrap_or("none");
+    print!("  {label} [\x1b[2m{default_display}\x1b[0m]: ");
+    { use std::io::Write; std::io::stdout().flush().unwrap(); }
+    let mut input = String::new();
+    reader.read_line(&mut input).unwrap();
+    let input = input.trim();
+    
+    if input.is_empty() {
+        default.unwrap_or("").to_string()
+    } else if let Ok(idx) = input.parse::<usize>() {
+        models.get(idx - 1).cloned().unwrap_or_else(|| input.to_string())
+    } else {
+        input.to_string()
+    }
+}
+
+
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
-
     let repl_mode = std::env::args().any(|a| a == "--repl");
+
+    // First-run setup: check if config exists when in REPL mode
+    let setup_mode = std::env::args().any(|a| a == "--setup");
+    if repl_mode || setup_mode {
+        let config_path = dirs::home_dir()
+            .map(|h| h.join(".config/flaco/config"))
+            .unwrap_or_default();
+        if setup_mode || !config_path.exists() {
+            run_setup();
+        }
+    }
+    
+    if repl_mode {
+        // REPL: suppress log output to keep the terminal clean
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::ERROR)
+            .init();
+    } else {
+        tracing_subscriber::fmt::init();
+    }
 
     // Acquire the single-host PID lock for Slack mode only. The lock
     // prevents two Slack servers from racing on Socket Mode events (the
@@ -347,6 +514,11 @@ async fn run_repl(
 
         // Pick model based on content
         let chosen_model = gateway.pick_model(&terminal_persona, trimmed);
+        {
+            use std::io::Write;
+            print!("\x1b[2m  thinking...\x1b[0m");
+            let _ = std::io::stdout().flush();
+        }
         let today = chrono::Local::now().format("%A, %B %-d, %Y").to_string();
         let mut system_prompt = format!(
             "You are flacoAi, a local AI assistant running on elGordo's homelab. \
@@ -356,6 +528,42 @@ async fn run_repl(
         );
 
         // Web search grounding for current events / sports / news
+        // Check for video generation request
+        if let Some((topic, duration, style, notes)) = channels::inference::is_video_request(trimmed) {
+            print!("\r\x1b[K");
+            println!("  \x1b[2mGenerating video script...\x1b[0m");
+            match channels::inference::trigger_video_generation(&http, &topic, &duration, &style, &notes).await {
+                Ok(msg) => {
+                    println!("\n\x1b[32m  \u{2713}\x1b[0m {msg}");
+                    print!("flacoAi> ");
+                    { use std::io::Write; let _ = std::io::stdout().flush(); }
+                    continue;
+                }
+                Err(e) => {
+                    println!("\n\x1b[31m  \u{2717}\x1b[0m {e}");
+                    print!("flacoAi> ");
+                    { use std::io::Write; let _ = std::io::stdout().flush(); }
+                    continue;
+                }
+            }
+        }
+
+        // Try live sports APIs first, then fall back to web search
+        let mut sports_found = false;
+        for sports_info in [
+            channels::inference::sports_data(&http, trimmed).await,
+            channels::inference::nhl_data(&http, trimmed).await,
+            channels::inference::epl_data(&http, trimmed).await,
+        ] {
+            if let Some(info) = sports_info {
+                system_prompt.push_str(&format!(
+                    "\n\n{info}\n\nUse this live data to answer the question directly. State the specific facts — teams, times, scores, pitchers."
+                ));
+                sports_found = true;
+                break;
+            }
+        }
+        if !sports_found {
         if let Some(query) = needs_web_search(trimmed) {
             match web_search(&http, &query).await {
                 Ok(results) => {
@@ -369,6 +577,7 @@ async fn run_repl(
                 }
             }
         }
+        } // end if !sports_found
 
         // Call Ollama
         let local_result = call_ollama(&http, &ollama_url, &chosen_model, &system_prompt, trimmed).await;
