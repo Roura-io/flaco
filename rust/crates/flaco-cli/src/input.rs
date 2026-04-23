@@ -208,7 +208,13 @@ impl EditSession {
         let prompt = self.prompt(base_prompt, vim_enabled);
         let buffer = self.visible_buffer();
         write!(out, "{prompt}{buffer}")?;
-        writeln!(out)
+        // `writeln!` emits just `\n`, which in raw mode is a bare linefeed
+        // with no carriage return — the cursor moves down but keeps the
+        // prompt's trailing column. The spinner that fires next captures
+        // that column via SavePosition, and every reply lands mid-row.
+        // An explicit CR+LF pins the cursor to col 0 regardless of the
+        // tty mode.
+        write!(out, "\r\n")
     }
 
     fn cursor_layout(&self, prompt: &str) -> (usize, usize, usize) {
@@ -397,7 +403,14 @@ impl LineEditor {
         }
 
         match key.code {
-            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            KeyCode::Enter
+                if key.modifiers.contains(KeyModifiers::SHIFT)
+                    || key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                // macOS Terminal and most TUI hosts deliver Option+Enter as
+                // ALT — treat it as a newline alongside Shift+Enter so users
+                // who reach for Option (the platform-native chord on Mac)
+                // don't accidentally submit.
                 if session.mode != EditorMode::Normal && session.mode != EditorMode::Visual {
                     self.insert_active_text(session, "\n");
                 }
