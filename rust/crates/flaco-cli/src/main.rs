@@ -42,7 +42,7 @@ use runtime::{
 use serde_json::json;
 use tools::GlobalToolRegistry;
 
-const DEFAULT_MODEL: &str = "qwen3:30b-a3b";
+const DEFAULT_MODEL: &str = "nemotron-cascade-2:latest";
 fn default_model() -> String {
     // Allow overriding the default model via FLACO_MODEL env var
     if let Ok(model) = std::env::var("FLACO_MODEL") {
