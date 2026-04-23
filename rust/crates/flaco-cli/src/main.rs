@@ -1182,7 +1182,7 @@ impl LiveCli {
             ),
             "  Editor           Tab completes slash commands · /vim toggles modal editing"
                 .to_string(),
-            "  Multiline        Shift/Option+Enter or Ctrl+J inserts a newline".to_string(),
+            "  Multiline        Option+Enter inserts a newline".to_string(),
         ];
         if !has_flacoai_md {
             lines.push(
@@ -2160,7 +2160,7 @@ fn render_repl_help() -> String {
         "  History              Up/Down recalls previous prompts".to_string(),
         "  Completion           Tab cycles slash command matches".to_string(),
         "  Cancel               Ctrl-C clears input (or exits on an empty prompt)".to_string(),
-        "  Multiline            Shift/Option+Enter or Ctrl+J inserts a newline".to_string(),
+        "  Multiline            Option+Enter inserts a newline".to_string(),
         String::new(),
         render_slash_command_help(),
     ]
@@ -4285,7 +4285,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         out,
-        "  Shift+Enter / Ctrl+J                  Insert a newline"
+        "  Option+Enter                          Insert a newline"
     )?;
     writeln!(out)?;
     writeln!(out, "Commands")?;
@@ -5051,7 +5051,7 @@ mod tests {
         let help = render_repl_help();
         assert!(help.contains("Up/Down"));
         assert!(help.contains("Tab cycles"));
-        assert!(help.contains("Shift/Option+Enter or Ctrl+J"));
+        assert!(help.contains("Option+Enter inserts a newline"));
     }
 
     #[test]
