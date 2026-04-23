@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crossterm::cursor::{MoveToColumn, RestorePosition, SavePosition};
+use crossterm::cursor::{Hide, MoveToColumn, RestorePosition, SavePosition, Show};
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 use crossterm::terminal::{Clear, ClearType};
 use crossterm::{execute, queue};
@@ -70,6 +70,10 @@ impl Drop for SpinnerHandle {
 
 fn run_spinner(label: String, stop: &AtomicBool) {
     let mut stdout = io::stdout();
+    // Hide the terminal cursor while the spinner paints — otherwise the
+    // blinking block sits beside the frame (or on the prior input row,
+    // depending on the terminal) and reads as a stray gray artifact.
+    let _ = execute!(stdout, Hide);
     let mut idx: usize = 0;
     // Paint once immediately so the user sees the spinner on the first
     // frame, not after the initial 80 ms sleep.
@@ -84,13 +88,15 @@ fn run_spinner(label: String, stop: &AtomicBool) {
         paint(&mut stdout, FRAMES[idx % FRAMES.len()], &label);
     }
 
-    // Clear the line on stop so whatever prints next starts clean.
+    // Clear the line on stop and restore the cursor so whatever prints
+    // next starts clean with a visible caret.
     let _ = execute!(
         stdout,
         SavePosition,
         MoveToColumn(0),
         Clear(ClearType::CurrentLine),
-        RestorePosition
+        RestorePosition,
+        Show
     );
     let _ = stdout.flush();
 }

@@ -1201,7 +1201,9 @@ impl LiveCli {
         let mut animated = spinner::start_turn("🦀 Thinking...");
         let mut stdout = io::stdout();
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
-        let result = self.runtime.run_turn(effective_input, Some(&mut permission_prompter));
+        let result = self
+            .runtime
+            .run_turn(effective_input, Some(&mut permission_prompter));
         // Belt-and-suspenders: the streaming client stops the spinner on
         // the first text token, but a tool-only turn (no text) never
         // triggers that path. Stop here unconditionally so the ✔ marker
@@ -1949,7 +1951,10 @@ impl LiveCli {
 
         let mut header = format!("🎬 Video script — {topic_used}");
         if scenes > 0 {
-            header.push_str(&format!(" · {scenes} scene{}", if scenes == 1 { "" } else { "s" }));
+            header.push_str(&format!(
+                " · {scenes} scene{}",
+                if scenes == 1 { "" } else { "s" }
+            ));
         }
         if !duration.is_empty() {
             header.push_str(&format!(" · {duration}"));
@@ -2801,8 +2806,10 @@ fn enrich_input_with_live_context(input: &str) -> Option<String> {
     if context_parts.is_empty() {
         if let Some(query) = channels::inference::needs_web_search(input) {
             if let Ok(results) = rt.block_on(channels::inference::web_search(&http, &query)) {
-                context_parts.push(format!("Web search results for '{query}':
-{results}"));
+                context_parts.push(format!(
+                    "Web search results for '{query}':
+{results}"
+                ));
             }
         }
     }
@@ -2811,9 +2818,11 @@ fn enrich_input_with_live_context(input: &str) -> Option<String> {
         return None;
     }
 
-    let context_block = context_parts.join("
+    let context_block = context_parts.join(
+        "
 
-");
+",
+    );
     Some(format!(
         "[LIVE DATA as of {today}]
 {context_block}
@@ -3404,6 +3413,11 @@ impl ApiClient for DefaultRuntimeClient {
             let mut events = Vec::new();
             let mut pending_tool: Option<(String, String, String)> = None;
             let mut saw_stop = false;
+            // Tracks whether this turn has already emitted the `●`
+            // gutter marker — the bullet paints exactly once, on the
+            // first non-empty line of the assistant's reply, even when
+            // the markdown buffer flushes in multiple chunks.
+            let mut bullet_emitted = false;
 
             while let Some(event) = stream
                 .next_event()
@@ -3437,7 +3451,7 @@ impl ApiClient for DefaultRuntimeClient {
                                 }
                                 if let Some(rendered) = markdown_stream.push(&renderer, &text) {
                                     let wrapped =
-                                        render::wrap_ansi_to_terminal(&rendered);
+                                        render::wrap_assistant_body(&rendered, &mut bullet_emitted);
                                     write!(out, "{wrapped}")
                                         .and_then(|()| out.flush())
                                         .map_err(|error| RuntimeError::new(error.to_string()))?;
@@ -3455,7 +3469,8 @@ impl ApiClient for DefaultRuntimeClient {
                     },
                     ApiStreamEvent::ContentBlockStop(_) => {
                         if let Some(rendered) = markdown_stream.flush(&renderer) {
-                            let wrapped = render::wrap_ansi_to_terminal(&rendered);
+                            let wrapped =
+                                render::wrap_assistant_body(&rendered, &mut bullet_emitted);
                             write!(out, "{wrapped}")
                                 .and_then(|()| out.flush())
                                 .map_err(|error| RuntimeError::new(error.to_string()))?;
@@ -3485,7 +3500,8 @@ impl ApiClient for DefaultRuntimeClient {
                     ApiStreamEvent::MessageStop(_) => {
                         saw_stop = true;
                         if let Some(rendered) = markdown_stream.flush(&renderer) {
-                            let wrapped = render::wrap_ansi_to_terminal(&rendered);
+                            let wrapped =
+                                render::wrap_assistant_body(&rendered, &mut bullet_emitted);
                             write!(out, "{wrapped}")
                                 .and_then(|()| out.flush())
                                 .map_err(|error| RuntimeError::new(error.to_string()))?;
@@ -4196,11 +4212,8 @@ impl ToolExecutor for CliToolExecutor {
                     runtime::tool_vet::vet_tool_call(vet_config, &user_message, tool_name, &value);
                 if let Some(deny_message) = decision.deny_message() {
                     if self.emit_output {
-                        let markdown =
-                            format_tool_result(tool_name, &deny_message, true);
-                        let _ = self
-                            .renderer
-                            .stream_markdown(&markdown, &mut io::stdout());
+                        let markdown = format_tool_result(tool_name, &deny_message, true);
+                        let _ = self.renderer.stream_markdown(&markdown, &mut io::stdout());
                     }
                     return Err(ToolError::new(deny_message));
                 }

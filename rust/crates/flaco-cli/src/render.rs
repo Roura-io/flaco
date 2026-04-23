@@ -1,8 +1,8 @@
 use std::fmt::Write as FmtWrite;
 use std::io::{self, IsTerminal, Write};
 
-use crossterm::style::{Color, Print, ResetColor, SetForegroundColor, Stylize};
 use crossterm::execute;
+use crossterm::style::{Color, Print, ResetColor, SetForegroundColor, Stylize};
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Theme, ThemeSet};
@@ -153,7 +153,187 @@ pub fn wrap_ansi_to_terminal(text: &str) -> String {
     // Leave one column of slack so wrapped output doesn't hug the right
     // edge (matches how most CLIs render prose).
     let target = width.saturating_sub(1).max(MIN_WRAP_WIDTH);
-    wrap_ansi_to_width(text, target)
+    justify_ansi_to_width(&wrap_ansi_to_width(text, target), target)
+}
+
+/// Assistant-turn framing: soft-wrap to the terminal, justify interior
+/// lines, then prefix the first non-empty line of the turn with `● ` and
+/// every continuation line with a 2-space indent. The caller threads the
+/// same `bullet_emitted` flag through every chunk of a single turn so the
+/// bullet paints exactly once even when `MarkdownStreamState` flushes in
+/// multiple pieces.
+#[must_use]
+pub fn wrap_assistant_body(text: &str, bullet_emitted: &mut bool) -> String {
+    let width = current_terminal_width();
+    wrap_assistant_body_to_width(text, width, bullet_emitted)
+}
+
+/// Testable core. `terminal_width` of 0 means "no TTY" — skip wrapping
+/// and justification but still emit the gutter affordance so downstream
+/// consumers (and unit tests) see consistent structure.
+#[must_use]
+pub fn wrap_assistant_body_to_width(
+    text: &str,
+    terminal_width: usize,
+    bullet_emitted: &mut bool,
+) -> String {
+    let body = if terminal_width == 0 {
+        text.to_string()
+    } else {
+        // 1 col for right-edge slack + 2 cols reserved for indent/bullet.
+        let target = terminal_width.saturating_sub(3).max(MIN_WRAP_WIDTH);
+        justify_ansi_to_width(&wrap_ansi_to_width(text, target), target)
+    };
+
+    let mut out = String::with_capacity(body.len() + 16);
+    let mut first_line_in_chunk = true;
+    for line in body.split('\n') {
+        if !first_line_in_chunk {
+            out.push('\n');
+        }
+        if !*bullet_emitted && !strip_ansi(line).trim().is_empty() {
+            // Bold amber filled-circle matches how Claude Code frames a
+            // message turn — the eye scans down the left gutter to see
+            // where each reply begins.
+            out.push_str("\u{1b}[1;38;5;215m●\u{1b}[0m ");
+            *bullet_emitted = true;
+        } else if !line.is_empty() {
+            out.push_str("  ");
+        }
+        out.push_str(line);
+        first_line_in_chunk = false;
+    }
+    out
+}
+
+/// Justify already word-wrapped prose by padding interior word gaps so
+/// each line lands at `width`. The last line of every paragraph (before
+/// a blank line or the end of input) is left ragged — a justified last
+/// line with huge gaps looks broken. Non-prose lines (code blocks,
+/// tables, headings, quotes, list bullets) pass through untouched.
+#[must_use]
+pub fn justify_ansi_to_width(text: &str, width: usize) -> String {
+    if width < MIN_WRAP_WIDTH {
+        return text.to_string();
+    }
+
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut out = String::with_capacity(text.len() + text.len() / 16);
+    for (index, line) in lines.iter().enumerate() {
+        let next = lines.get(index + 1).copied();
+        out.push_str(&justify_line(line, next, width));
+        if index + 1 < lines.len() {
+            out.push('\n');
+        }
+    }
+    out
+}
+
+fn justify_line(line: &str, next: Option<&str>, width: usize) -> String {
+    if should_skip_line(line) {
+        return line.to_string();
+    }
+    // A paragraph's final line is the one followed by a blank line, a
+    // non-prose line, or the end of the buffer — leave those ragged.
+    let is_paragraph_tail = match next {
+        None => true,
+        Some(next_line) => next_line.trim().is_empty() || should_skip_line(next_line),
+    };
+    if is_paragraph_tail {
+        return line.to_string();
+    }
+
+    let visible = visible_width(line);
+    // Padding only helps lines that already fill most of the column —
+    // a half-filled line with expanded gaps reads as broken typography.
+    if visible == 0 || visible >= width || visible * 5 < width * 3 {
+        return line.to_string();
+    }
+
+    let leading_end = line
+        .bytes()
+        .position(|byte| byte != b' ')
+        .unwrap_or(line.len());
+    let body = &line[leading_end..];
+
+    // ANSI escape sequences contain no literal spaces, so every ' ' in
+    // the body is a real word separator. We pad the first space of each
+    // run (consecutive spaces are preserved verbatim after the first).
+    let mut gap_positions: Vec<usize> = Vec::new();
+    let mut prev_was_space = false;
+    for (idx, ch) in body.char_indices() {
+        if ch == ' ' {
+            if !prev_was_space {
+                gap_positions.push(idx);
+            }
+            prev_was_space = true;
+        } else {
+            prev_was_space = false;
+        }
+    }
+    if gap_positions.is_empty() {
+        return line.to_string();
+    }
+
+    let padding_total = width - visible;
+    let base = padding_total / gap_positions.len();
+    let extra = padding_total % gap_positions.len();
+
+    let mut justified = String::with_capacity(line.len() + padding_total);
+    justified.push_str(&line[..leading_end]);
+    let mut cursor = 0;
+    for (rank, &gap_byte) in gap_positions.iter().enumerate() {
+        justified.push_str(&body[cursor..=gap_byte]);
+        let extra_spaces = base + usize::from(rank < extra);
+        for _ in 0..extra_spaces {
+            justified.push(' ');
+        }
+        cursor = gap_byte + 1;
+    }
+    justified.push_str(&body[cursor..]);
+    justified
+}
+
+/// Line prefixes that should never be justified — tables, quotes,
+/// rules, code-block frames, headings. Justification would stretch the
+/// glyphs and break the alignment that makes these readable.
+const NON_PROSE_PREFIXES: &[&str] = &["│", "╭", "╰", "├", "┼", "─", "#", "> ", "│ "];
+
+fn should_skip_line(line: &str) -> bool {
+    // Code-block body: the highlighter wraps every line in its 256-color
+    // background, so identify those by the literal escape prefix.
+    if line.starts_with("\u{1b}[48;5;236m") {
+        return true;
+    }
+    let stripped = strip_ansi(line);
+    let trimmed = stripped.trim_start();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    if NON_PROSE_PREFIXES
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
+    {
+        return true;
+    }
+
+    // Bullet or dash list marker.
+    if trimmed.starts_with("• ") || trimmed.starts_with("- ") || trimmed.starts_with("* ") {
+        return true;
+    }
+
+    // Ordered list marker like "1. " or "12. ".
+    let bytes = trimmed.as_bytes();
+    let mut idx = 0;
+    while idx < bytes.len() && bytes[idx].is_ascii_digit() {
+        idx += 1;
+    }
+    if idx > 0 && idx + 1 < bytes.len() && bytes[idx] == b'.' && bytes[idx + 1] == b' ' {
+        return true;
+    }
+
+    false
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -913,11 +1093,7 @@ mod tests {
         let wrapped = super::wrap_ansi_to_width(input, 20);
         // Every line must end at a word boundary and be ≤ 20 visible chars.
         for line in wrapped.split('\n') {
-            assert!(
-                line.len() <= 20,
-                "line too long ({}): {line:?}",
-                line.len()
-            );
+            assert!(line.len() <= 20, "line too long ({}): {line:?}", line.len());
             // The wrap never breaks mid-word, so each word is contiguous.
             // Check: no word from the input is split across a line break.
         }
@@ -989,5 +1165,68 @@ mod tests {
         let output = String::from_utf8_lossy(&out);
         assert!(output.starts_with('\n'));
         assert!(output.contains("✘ Boom"));
+    }
+
+    #[test]
+    fn justify_pads_interior_lines_and_leaves_paragraph_tails_ragged() {
+        // Two prose lines then a paragraph break — the first line is
+        // interior and should be padded to exactly `width`. The second
+        // closes the paragraph (next line is blank) so it stays ragged.
+        let wrapped = "alpha beta gamma\ndelta epsilon\n\nnext paragraph";
+        let out = super::justify_ansi_to_width(wrapped, 24);
+
+        let mut lines = out.split('\n');
+        let first = lines.next().expect("first");
+        assert_eq!(super::visible_width(first), 24, "interior line padded");
+        assert!(first.starts_with("alpha"), "first word untouched");
+
+        let second = lines.next().expect("second");
+        assert_eq!(
+            super::visible_width(second),
+            "delta epsilon".len(),
+            "paragraph-tail line stays ragged"
+        );
+        assert_eq!(lines.next(), Some(""), "blank separator preserved");
+    }
+
+    #[test]
+    fn justify_skips_tables_code_and_lists() {
+        // Each line below is a non-prose line — justification must pass
+        // them through verbatim even if they sit in the interior of the
+        // buffer.
+        let inputs = [
+            "│ header │ value │\nbody",
+            "• bullet one\nbody",
+            "1. ordered one\nbody",
+            "# heading\nbody",
+        ];
+        for input in inputs {
+            let out = super::justify_ansi_to_width(input, 80);
+            let first = out.split('\n').next().expect("first line");
+            let original_first = input.split('\n').next().expect("first line input");
+            assert_eq!(first, original_first, "non-prose line preserved: {input:?}");
+        }
+    }
+
+    #[test]
+    fn assistant_body_emits_bullet_once_and_indents_continuations() {
+        let mut flag = false;
+        let first = super::wrap_assistant_body_to_width("first paragraph", 80, &mut flag);
+        assert!(flag, "bullet state flipped after first emission");
+        assert!(
+            first.contains('●'),
+            "first chunk carries the gutter bullet: {first:?}"
+        );
+
+        let second = super::wrap_assistant_body_to_width("second paragraph", 80, &mut flag);
+        assert!(
+            !second.contains('●'),
+            "second chunk must not repaint the bullet: {second:?}"
+        );
+        // Continuation chunks indent by 2 spaces to sit under the bullet.
+        assert!(
+            second.starts_with("  second"),
+            "continuation chunk indents: {second:?}"
+        );
     }
 }
