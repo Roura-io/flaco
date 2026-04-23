@@ -84,7 +84,7 @@ impl Default for Ollama {
     fn default() -> Self {
         Self {
             base_url: "http://127.0.0.1:11434".into(),
-            default_model: "qwen3:32b-q8_0".into(),
+            default_model: "nemotron-cascade-2:latest".into(),
         }
     }
 }
@@ -157,9 +157,9 @@ pub struct Models {
 impl Default for Models {
     fn default() -> Self {
         Self {
-            default: "qwen3:32b-q8_0".into(),
+            default: "nemotron-cascade-2:latest".into(),
             swift: "flaco-custom:7b".into(),
-            coder: "qwen3-coder:30b".into(),
+            coder: "qwen3-coder-next:latest".into(),
         }
     }
 }
@@ -439,7 +439,7 @@ tier = "chris"
             assert_eq!(cfg.server.web_port, 9999);
             assert_eq!(cfg.tools.tier, Tier::Chris);
             // Defaults still fill in what the file didn't specify.
-            assert_eq!(cfg.ollama.default_model, "qwen3:32b-q8_0");
+            assert_eq!(cfg.ollama.default_model, "nemotron-cascade-2:latest");
             assert!(matches!(cfg.source(), ConfigSource::File(_)));
         });
     }
