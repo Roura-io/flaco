@@ -164,7 +164,8 @@ pub(crate) fn render_init_flacoai_md(cwd: &Path) -> String {
     let mut lines = vec![
         "# FLACOAI.md".to_string(),
         String::new(),
-        "This file provides guidance to flacoAi when working with code in this repository.".to_string(),
+        "This file provides guidance to flacoAi when working with code in this repository."
+            .to_string(),
         String::new(),
     ];
 
@@ -386,7 +387,8 @@ mod tests {
         let root = temp_dir();
         fs::create_dir_all(&root).expect("create root");
         fs::write(root.join("FLACOAI.md"), "custom guidance\n").expect("write existing flacoai md");
-        fs::write(root.join(".gitignore"), ".flacoai/settings.local.json\n").expect("write gitignore");
+        fs::write(root.join(".gitignore"), ".flacoai/settings.local.json\n")
+            .expect("write gitignore");
 
         let first = initialize_repo(&root).expect("first init should succeed");
         assert!(first
