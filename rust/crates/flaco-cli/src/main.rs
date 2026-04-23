@@ -1182,7 +1182,7 @@ impl LiveCli {
             ),
             "  Editor           Tab completes slash commands · /vim toggles modal editing"
                 .to_string(),
-            "  Multiline        Shift+Enter or Ctrl+J inserts a newline".to_string(),
+            "  Multiline        Shift/Option+Enter or Ctrl+J inserts a newline".to_string(),
         ];
         if !has_flacoai_md {
             lines.push(
@@ -1190,6 +1190,8 @@ impl LiveCli {
                     .to_string(),
             );
         }
+        // Trailing blank row separates the banner from the first prompt.
+        lines.push(String::new());
         lines.join("\n")
     }
 
@@ -2158,7 +2160,7 @@ fn render_repl_help() -> String {
         "  History              Up/Down recalls previous prompts".to_string(),
         "  Completion           Tab cycles slash command matches".to_string(),
         "  Cancel               Ctrl-C clears input (or exits on an empty prompt)".to_string(),
-        "  Multiline            Shift+Enter or Ctrl+J inserts a newline".to_string(),
+        "  Multiline            Shift/Option+Enter or Ctrl+J inserts a newline".to_string(),
         String::new(),
         render_slash_command_help(),
     ]
@@ -2761,77 +2763,15 @@ fn resolve_export_path(
 /// Returns  when live data was injected,  when the
 /// original input should be used as-is. The augmented string prepends a
 /// context block so the local LLM sees real facts before the question.
-fn enrich_input_with_live_context(input: &str) -> Option<String> {
-    let today = chrono::Local::now().format("%A, %B %-d, %Y").to_string();
-    // Quick keyword check -- skip the async work for non-sports / non-news queries
-    let needs_sports = channels::inference::needs_web_search(input).is_some();
-    if !needs_sports {
-        return None;
-    }
-
-    // Build a short-lived tokio runtime to run the async fetches.
-    // This is intentional: the CLI's main thread is synchronous, and the
-    // DefaultRuntimeClient already does the same pattern internally.
-    let rt = match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt,
-        Err(_) => return None,
-    };
-
-    let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(6))
-        .build()
-        .unwrap_or_default();
-
-    let mut context_parts: Vec<String> = Vec::new();
-
-    // Sports APIs -- try MLB, NHL, EPL in parallel
-    let (mlb, nhl, epl) = rt.block_on(async {
-        let mlb = channels::inference::sports_data(&http, input).await;
-        let nhl = channels::inference::nhl_data(&http, input).await;
-        let epl = channels::inference::epl_data(&http, input).await;
-        (mlb, nhl, epl)
-    });
-
-    if let Some(data) = mlb {
-        context_parts.push(data);
-    }
-    if let Some(data) = nhl {
-        context_parts.push(data);
-    }
-    if let Some(data) = epl {
-        context_parts.push(data);
-    }
-
-    // DDG web search as fallback when sports APIs didn't fire
-    if context_parts.is_empty() {
-        if let Some(query) = channels::inference::needs_web_search(input) {
-            if let Ok(results) = rt.block_on(channels::inference::web_search(&http, &query)) {
-                context_parts.push(format!(
-                    "Web search results for '{query}':
-{results}"
-                ));
-            }
-        }
-    }
-
-    if context_parts.is_empty() {
-        return None;
-    }
-
-    let context_block = context_parts.join(
-        "
-
-",
-    );
-    Some(format!(
-        "[LIVE DATA as of {today}]
-{context_block}
-[END LIVE DATA]
-
-Using the live data above, write a natural conversational response. For sports: lead with the outcome (who won/lost and the score), then describe key moments and pivotal plays in narrative form. Do NOT use bullet points. Do NOT say you lack real-time data. Write like a sports broadcaster giving a recap.
-
-{input}"
-    ))
+fn enrich_input_with_live_context(_input: &str) -> Option<String> {
+    // Disabled 2026-04-23: the original keyword filter (SPORTS + NEWS +
+    // TIME_SENSITIVE + EXPLICIT_SEARCH) matched far too broadly — a plain
+    // "how are we doing today?" triggered MLB/NHL/EPL fetches and the
+    // model wove Warriors/Celtics narratives into greetings. Until we
+    // reintroduce this as a Caller-gated path (Jira/Vikunja for the TUI
+    // developer, sports only for #dad-help in Slack), the safest default
+    // is to inject nothing.
+    None
 }
 
 fn build_system_prompt() -> Result<Vec<String>, Box<dyn std::error::Error>> {
@@ -5111,7 +5051,7 @@ mod tests {
         let help = render_repl_help();
         assert!(help.contains("Up/Down"));
         assert!(help.contains("Tab cycles"));
-        assert!(help.contains("Shift+Enter or Ctrl+J"));
+        assert!(help.contains("Shift/Option+Enter or Ctrl+J"));
     }
 
     #[test]

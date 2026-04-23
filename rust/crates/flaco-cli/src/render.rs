@@ -181,8 +181,12 @@ pub fn wrap_assistant_body_to_width(
         text.to_string()
     } else {
         // 1 col for right-edge slack + 2 cols reserved for indent/bullet.
+        // Justification used to run here, but on short lines it produced
+        // "good  afternoon!"-style double-gaps that read worse than a
+        // ragged edge. Claude Code does not justify either — the helper
+        // is kept around for later, but the assistant path soft-wraps.
         let target = terminal_width.saturating_sub(3).max(MIN_WRAP_WIDTH);
-        justify_ansi_to_width(&wrap_ansi_to_width(text, target), target)
+        wrap_ansi_to_width(text, target)
     };
 
     let mut out = String::with_capacity(body.len() + 16);
@@ -192,9 +196,11 @@ pub fn wrap_assistant_body_to_width(
             out.push('\n');
         }
         if !*bullet_emitted && !strip_ansi(line).trim().is_empty() {
-            // Bold amber filled-circle matches how Claude Code frames a
-            // message turn — the eye scans down the left gutter to see
-            // where each reply begins.
+            // Blank row above the bullet for breathing room between the
+            // prompt echo and the reply. Bold amber filled-circle matches
+            // how Claude Code frames a message turn — the eye scans down
+            // the left gutter to see where each reply begins.
+            out.push('\n');
             out.push_str("\u{1b}[1;38;5;215m●\u{1b}[0m ");
             *bullet_emitted = true;
         } else if !line.is_empty() {
